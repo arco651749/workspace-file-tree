@@ -316,7 +316,7 @@ class ImagePreviewStrategy {
 
     this.imgEl.onload = () => {
       context.setSizeText(`${context.formatSize(fileData.size)} · ${this.imgEl.naturalWidth}×${this.imgEl.naturalHeight}px`);
-      this.initMarkupSystem();
+      this.initCanvas();
     };
     this.imgEl.onerror = () => {
       context.setSizeText(`${context.formatSize(fileData.size)} · (Decode error)`);
@@ -329,27 +329,11 @@ class ImagePreviewStrategy {
   }
 
   getActions(fileData, context) {
-    // Toolbar is displayed directly inside the image preview area, no extra header button needed
-    return [];
-  }
+    // Hide drawer's generic "Ask Agent" button to prevent duplication
+    const sendAgentBtn = document.getElementById('btn-send-agent');
+    if (sendAgentBtn) sendAgentBtn.hidden = true;
 
-  initMarkupSystem() {
-    if (!this.imgEl || !this.innerWrapper || !this.container) return;
-
-    const naturalW = this.imgEl.naturalWidth || this.imgEl.clientWidth || 800;
-    const naturalH = this.imgEl.naturalHeight || this.imgEl.clientHeight || 600;
-
-    // Create Annotation Canvas overlay directly
-    this.canvasEl = document.createElement('canvas');
-    this.canvasEl.className = 'annotation-canvas';
-    this.canvasEl.width = naturalW;
-    this.canvasEl.height = naturalH;
-    this.ctx = this.canvasEl.getContext('2d');
-    this.history = [];
-
-    this.innerWrapper.appendChild(this.canvasEl);
-
-    // Create Annotation Floating Toolbar directly
+    // Create Annotation Toolbar merged directly into the drawer header bar
     this.toolbarEl = document.createElement('div');
     this.toolbarEl.className = 'annotation-toolbar';
     this.toolbarEl.innerHTML = `
@@ -381,9 +365,26 @@ class ImagePreviewStrategy {
       </div>
     `;
 
-    this.container.appendChild(this.toolbarEl);
-    this.setupDrawingListeners();
     this.setupToolbarListeners();
+    return [this.toolbarEl];
+  }
+
+  initCanvas() {
+    if (!this.imgEl || !this.innerWrapper) return;
+
+    const naturalW = this.imgEl.naturalWidth || this.imgEl.clientWidth || 800;
+    const naturalH = this.imgEl.naturalHeight || this.imgEl.clientHeight || 600;
+
+    // Create Annotation Canvas overlay directly over image
+    this.canvasEl = document.createElement('canvas');
+    this.canvasEl.className = 'annotation-canvas';
+    this.canvasEl.width = naturalW;
+    this.canvasEl.height = naturalH;
+    this.ctx = this.canvasEl.getContext('2d');
+    this.history = [];
+
+    this.innerWrapper.appendChild(this.canvasEl);
+    this.setupDrawingListeners();
   }
 
   setupToolbarListeners() {
@@ -669,6 +670,9 @@ class ImagePreviewStrategy {
   }
 
   destroy() {
+    const sendAgentBtn = document.getElementById('btn-send-agent');
+    if (sendAgentBtn) sendAgentBtn.hidden = false;
+
     if (this.toolbarEl) {
       this.toolbarEl.remove();
       this.toolbarEl = null;

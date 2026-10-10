@@ -385,10 +385,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-primary);
   flex-shrink: 0;
+  gap: 8px;
+  min-height: 38px;
 }
 
 .drawer-title-group {
@@ -396,7 +398,9 @@ body {
   align-items: center;
   gap: 6px;
   overflow: hidden;
-  max-width: 70%;
+  flex-shrink: 1;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .drawer-title {
@@ -410,12 +414,20 @@ body {
 .drawer-size {
   color: var(--text-muted);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .drawer-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+}
+
+.preview-custom-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .drawer-body {
@@ -1157,42 +1169,37 @@ code.hljs {
 }
 
 .annotation-toolbar {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(24, 24, 37, 0.95);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--border-color);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-  border-radius: 8px;
-  padding: 6px 12px;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
   user-select: none;
+  flex-wrap: wrap;
 }
 
 .annot-tool-group, .annot-size-group, .annot-action-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .annot-divider {
   width: 1px;
-  height: 18px;
+  height: 16px;
   background: var(--border-color);
-  margin: 0 4px;
+  margin: 0 3px;
 }
 
 .annot-btn {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 4px 6px;
-  font-size: 14px;
+  padding: 3px 5px;
+  font-size: 13px;
   cursor: pointer;
   line-height: 1;
   transition: all 0.15s;
@@ -1210,12 +1217,12 @@ code.hljs {
 .annot-color-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .color-dot {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   cursor: pointer;
   border: 2px solid transparent;
@@ -1237,8 +1244,8 @@ code.hljs {
   border: 1px solid var(--border-color);
   border-radius: 4px;
   color: var(--text-muted);
-  font-size: 10.5px;
-  padding: 2px 6px;
+  font-size: 10px;
+  padding: 2px 5px;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -1260,9 +1267,10 @@ code.hljs {
   color: var(--text-primary);
   border-radius: 4px;
   font-size: 11px;
-  padding: 4px 8px;
+  padding: 3px 7px;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 
 .annot-action-btn:hover {
