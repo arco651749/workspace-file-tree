@@ -1,8 +1,11 @@
 import { existsSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, extname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { SidecarApp, Response } from 'sidecar_sdk';
 
+const execFileAsync = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 // Convert file:// URI or raw Windows/POSIX path to local filesystem path
@@ -165,8 +168,48 @@ const IMAGE_MIMES = {
   '.bmp': 'image/bmp'
 };
 
-// 3. Read preview of a file (Supports Text & Images)
-app.api('/api/file-content', (data) => {
+// Supported Audio/Video Media Mime Types
+const MEDIA_MIMES = {
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.mov': 'video/quicktime'
+};
+
+const OFFICE_EXTS = new Set(['.docx', '.xlsx', '.pptx']);
+
+// 3. Raw Media Streaming API (Direct HTTP endpoint for <audio> and <video>)
+app.api('/api/raw-media', (data) => {
+  const root = resolveRoot(data);
+  if (!data?.path) return new Response('Missing path parameter', { status: 400 });
+  const fullPath = resolve(root, data.path);
+  if (!existsSync(fullPath)) return new Response('Media file not found', { status: 404 });
+
+  const ext = extname(fullPath).toLowerCase();
+  const mime = MEDIA_MIMES[ext] || 'application/octet-stream';
+
+  try {
+    const buffer = readFileSync(fullPath);
+    return new Response(buffer, {
+      contentType: mime,
+      headers: {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(buffer.length)
+      }
+    });
+  } catch (err) {
+    return new Response(String(err.message), { status: 500 });
+  }
+}, 'GET');
+
+// 4. Read preview of a file (Supports Images, Audio, Video, PDF, Office, and Text)
+app.api('/api/file-content', async (data) => {
   const root = resolveRoot(data);
   if (!data?.path) return { error: 'No path specified' };
   const fullPath = resolve(root, data.path);
@@ -205,6 +248,52 @@ app.api('/api/file-content', (data) => {
       };
     }
 
+    // Audio & Video Media preview
+    if (MEDIA_MIMES[ext]) {
+      const isVideo = ['.mp4', '.webm', '.ogv', '.mov'].includes(ext);
+      const relPath = relative(root, fullPath);
+      const mediaUrl = `/api/raw-media?path=${encodeURIComponent(relPath)}&root=${encodeURIComponent(root)}`;
+      return {
+        ext,
+        isMedia: true,
+        mediaType: isVideo ? 'video' : 'audio',
+        mime: MEDIA_MIMES[ext],
+        mediaUrl,
+        size: st.size,
+        name: basename(fullPath),
+        path: relPath,
+      };
+    }
+
+    // Office Documents (.docx, .xlsx, .pptx via officecli)
+    if (OFFICE_EXTS.has(ext)) {
+      try {
+        const { stdout } = await execFileAsync('officecli', ['view', fullPath, 'html'], {
+          maxBuffer: 60 * 1024 * 1024,
+          timeout: 25000,
+          windowsHide: true,
+        });
+        return {
+          ext,
+          isOffice: true,
+          html: stdout,
+          size: st.size,
+          name: basename(fullPath),
+          path: relative(root, fullPath),
+        };
+      } catch (officeErr) {
+        return {
+          ext,
+          isOffice: false,
+          isBinary: true,
+          size: st.size,
+          name: basename(fullPath),
+          path: relative(root, fullPath),
+          message: `OfficeCLI preview failed: ${officeErr.message}`
+        };
+      }
+    }
+
     // PDF file preview (up to 25MB)
     if (ext === '.pdf') {
       const maxPdfBytes = 25 * 1024 * 1024;
@@ -230,8 +319,8 @@ app.api('/api/file-content', (data) => {
       };
     }
 
-    // Text file preview (up to 100KB)
-    const maxBytes = 100 * 1024;
+    // Text file preview (up to 300KB)
+    const maxBytes = 300 * 1024;
     const buffer = readFileSync(fullPath);
     const isBinary = buffer.slice(0, 1024).includes(0);
 

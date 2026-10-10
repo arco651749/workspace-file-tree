@@ -723,7 +723,407 @@ class PdfPreviewStrategy {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Default Fallback Strategy (For unsupported binary files: Office, Archives, etc.)
+// 6. CSV/TSV Interactive Table Strategy (Filtering, Column Sorting, Raw Toggle)
+// ---------------------------------------------------------------------------
+function parseCsv(text, delimiter = ',') {
+  if (!text) return [];
+  const rows = [];
+  let currentRow = [];
+  let currentField = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        currentField += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === delimiter && !inQuotes) {
+      currentRow.push(currentField);
+      currentField = '';
+    } else if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') {
+        i++;
+      }
+      currentRow.push(currentField);
+      currentField = '';
+      if (currentRow.length > 0 && !(currentRow.length === 1 && currentRow[0] === '')) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+    } else {
+      currentField += char;
+    }
+  }
+  if (currentField || currentRow.length > 0) {
+    currentRow.push(currentField);
+    rows.push(currentRow);
+  }
+  return rows;
+}
+
+class CsvPreviewStrategy {
+  constructor() {
+    this.id = 'csv';
+    this.name = 'Data Table';
+    this.icon = '📊';
+    this.mode = 'table';
+    this.sortCol = -1;
+    this.sortAsc = true;
+    this.filterQuery = '';
+    this.allRows = [];
+    this.tbody = null;
+    this.metaBadge = null;
+  }
+
+  supports(fileData) {
+    return ['.csv', '.tsv'].includes(fileData.ext);
+  }
+
+  render(container, fileData, context) {
+    container.innerHTML = '';
+
+    if (this.mode === 'raw') {
+      const codeView = renderCodeWithGutter(fileData.content || '', 'plaintext', fileData.truncated);
+      container.appendChild(codeView);
+      return;
+    }
+
+    const rawContent = fileData.content || '';
+    const delimiter = fileData.ext === '.tsv' ? '\t' : ',';
+    this.allRows = parseCsv(rawContent, delimiter);
+
+    if (this.allRows.length === 0) {
+      container.innerHTML = '<div class="empty-state">Empty CSV/TSV document</div>';
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'preview-csv-container';
+
+    const headerBar = document.createElement('div');
+    headerBar.className = 'csv-header-bar';
+
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'csv-search-input';
+    searchInput.placeholder = 'Filter rows...';
+    searchInput.value = this.filterQuery;
+    searchInput.addEventListener('input', (e) => {
+      this.filterQuery = e.target.value.toLowerCase().trim();
+      this.renderTableBody();
+    });
+
+    const metaBadge = document.createElement('span');
+    metaBadge.className = 'csv-meta-badge';
+    this.metaBadge = metaBadge;
+
+    headerBar.appendChild(searchInput);
+    headerBar.appendChild(metaBadge);
+    wrapper.appendChild(headerBar);
+
+    const tableWrapper = document.createElement('div');
+    tableWrapper.className = 'csv-table-wrapper';
+
+    const table = document.createElement('table');
+    table.className = 'csv-table';
+
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+
+    const headers = this.allRows[0] || [];
+    headers.forEach((h, colIdx) => {
+      const th = document.createElement('th');
+      th.className = 'csv-th';
+      th.title = 'Click to sort column';
+
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = h || `Col ${colIdx + 1}`;
+      th.appendChild(labelSpan);
+
+      const sortIndicator = document.createElement('span');
+      sortIndicator.className = 'csv-sort-icon';
+      sortIndicator.textContent = this.sortCol === colIdx ? (this.sortAsc ? ' ▲' : ' ▼') : '';
+      th.appendChild(sortIndicator);
+
+      th.addEventListener('click', () => {
+        if (this.sortCol === colIdx) {
+          this.sortAsc = !this.sortAsc;
+        } else {
+          this.sortCol = colIdx;
+          this.sortAsc = true;
+        }
+        this.renderTableBody();
+        Array.from(headerRow.children).forEach((node, idx) => {
+          const icon = node.querySelector('.csv-sort-icon');
+          if (icon) {
+            icon.textContent = idx === this.sortCol ? (this.sortAsc ? ' ▲' : ' ▼') : '';
+          }
+        });
+      });
+
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    this.tbody = document.createElement('tbody');
+    table.appendChild(this.tbody);
+    tableWrapper.appendChild(table);
+    wrapper.appendChild(tableWrapper);
+
+    container.appendChild(wrapper);
+    this.renderTableBody();
+  }
+
+  renderTableBody() {
+    if (!this.tbody) return;
+    this.tbody.innerHTML = '';
+
+    const headers = this.allRows[0] || [];
+    let rows = this.allRows.slice(1);
+
+    if (this.filterQuery) {
+      rows = rows.filter(r => r.some(cell => String(cell).toLowerCase().includes(this.filterQuery)));
+    }
+
+    if (this.sortCol >= 0) {
+      const col = this.sortCol;
+      rows.sort((a, b) => {
+        const valA = a[col] || '';
+        const valB = b[col] || '';
+        const numA = Number(valA);
+        const numB = Number(valB);
+        if (!isNaN(numA) && !isNaN(numB) && valA !== '' && valB !== '') {
+          return this.sortAsc ? numA - numB : numB - numA;
+        }
+        return this.sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      });
+    }
+
+    if (this.metaBadge) {
+      this.metaBadge.textContent = `${rows.length} rows · ${headers.length} cols`;
+    }
+
+    const fragment = document.createDocumentFragment();
+    rows.slice(0, 1000).forEach((row, rowIdx) => {
+      const tr = document.createElement('tr');
+      tr.className = rowIdx % 2 === 0 ? 'csv-tr-even' : 'csv-tr-odd';
+
+      headers.forEach((_, colIdx) => {
+        const td = document.createElement('td');
+        td.className = 'csv-td';
+        td.textContent = row[colIdx] !== undefined ? row[colIdx] : '';
+        tr.appendChild(td);
+      });
+      fragment.appendChild(tr);
+    });
+
+    this.tbody.appendChild(fragment);
+  }
+
+  getActions(fileData, context) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.textContent = this.mode === 'table' ? '📝 Raw' : '📊 Table';
+    btn.title = 'Toggle between Data Table and Raw text';
+    btn.addEventListener('click', () => {
+      this.mode = this.mode === 'table' ? 'raw' : 'table';
+      btn.textContent = this.mode === 'table' ? '📝 Raw' : '📊 Table';
+      context.reRender();
+    });
+    return [btn];
+  }
+
+  destroy() {
+    this.allRows = [];
+    this.tbody = null;
+    this.metaBadge = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Audio & Video Media Preview Strategy (Native HTML5 Media Players)
+// ---------------------------------------------------------------------------
+class MediaPreviewStrategy {
+  constructor() {
+    this.id = 'media';
+    this.name = 'Media Player';
+    this.icon = '🎵';
+    this.mediaEl = null;
+  }
+
+  supports(fileData) {
+    if (fileData.isMedia) return true;
+    const mediaExts = ['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac', '.mp4', '.webm', '.ogv', '.mov'];
+    return mediaExts.includes(fileData.ext);
+  }
+
+  render(container, fileData, context) {
+    container.innerHTML = '';
+    const isVideo = fileData.mediaType === 'video' || ['.mp4', '.webm', '.ogv', '.mov'].includes(fileData.ext);
+
+    if (context && context.setIcon) {
+      context.setIcon(isVideo ? '🎬' : '🎵');
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = isVideo ? 'preview-video-container' : 'preview-audio-container';
+
+    if (isVideo) {
+      this.mediaEl = document.createElement('video');
+      this.mediaEl.className = 'media-video-player';
+      this.mediaEl.controls = true;
+      this.mediaEl.autoplay = false;
+      this.mediaEl.preload = 'metadata';
+      this.mediaEl.src = fileData.mediaUrl || '';
+
+      this.mediaEl.onloadedmetadata = () => {
+        const mins = Math.floor(this.mediaEl.duration / 60);
+        const secs = Math.floor(this.mediaEl.duration % 60).toString().padStart(2, '0');
+        if (context && context.setSizeText) {
+          context.setSizeText(`${context.formatSize(fileData.size)} · ${this.mediaEl.videoWidth}×${this.mediaEl.videoHeight} · ${mins}:${secs}`);
+        }
+      };
+
+      wrapper.appendChild(this.mediaEl);
+    } else {
+      const card = document.createElement('div');
+      card.className = 'media-audio-card';
+
+      const iconDiv = document.createElement('div');
+      iconDiv.className = 'audio-icon-badge';
+      iconDiv.textContent = '🎵';
+
+      const titleDiv = document.createElement('div');
+      titleDiv.className = 'audio-title';
+      titleDiv.textContent = fileData.name || 'Audio Track';
+
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'audio-meta';
+      metaDiv.textContent = `${context.formatSize(fileData.size)} · ${(fileData.ext || '').toUpperCase().replace('.', '')}`;
+
+      this.mediaEl = document.createElement('audio');
+      this.mediaEl.className = 'media-audio-player';
+      this.mediaEl.controls = true;
+      this.mediaEl.autoplay = false;
+      this.mediaEl.preload = 'metadata';
+      this.mediaEl.src = fileData.mediaUrl || '';
+
+      this.mediaEl.onloadedmetadata = () => {
+        const mins = Math.floor(this.mediaEl.duration / 60);
+        const secs = Math.floor(this.mediaEl.duration % 60).toString().padStart(2, '0');
+        metaDiv.textContent = `${context.formatSize(fileData.size)} · ${mins}:${secs} · ${(fileData.ext || '').toUpperCase().replace('.', '')}`;
+      };
+
+      card.appendChild(iconDiv);
+      card.appendChild(titleDiv);
+      card.appendChild(metaDiv);
+      card.appendChild(this.mediaEl);
+      wrapper.appendChild(card);
+    }
+
+    container.appendChild(wrapper);
+  }
+
+  destroy() {
+    if (this.mediaEl) {
+      try {
+        this.mediaEl.pause();
+        this.mediaEl.src = '';
+      } catch (_) {}
+      this.mediaEl = null;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 8. Office Document Preview Strategy (Interactive HTML via officecli)
+// ---------------------------------------------------------------------------
+class OfficePreviewStrategy {
+  constructor() {
+    this.id = 'office';
+    this.name = 'Office Document';
+    this.icon = '📊';
+    this.frame = null;
+  }
+
+  supports(fileData) {
+    if (fileData.isOffice) return true;
+    const officeExts = ['.docx', '.xlsx', '.pptx', '.doc', '.xls', '.ppt'];
+    return officeExts.includes(fileData.ext);
+  }
+
+  render(container, fileData, context) {
+    container.innerHTML = '';
+
+    const iconMap = {
+      '.docx': '📘',
+      '.doc': '📘',
+      '.xlsx': '📗',
+      '.xls': '📗',
+      '.pptx': '📙',
+      '.ppt': '📙',
+    };
+    if (context && context.setIcon) {
+      context.setIcon(iconMap[fileData.ext] || '📊');
+    }
+
+    if (!fileData.html) {
+      const errCard = document.createElement('div');
+      errCard.className = 'preview-fallback-card';
+      errCard.innerHTML = `
+        <div class="fallback-icon">⚠️</div>
+        <div class="fallback-name">${escapeHtml(fileData.name)}</div>
+        <div class="fallback-desc">${escapeHtml(fileData.message || 'Office preview could not be generated. Ensure officecli is installed.')}</div>
+      `;
+      container.appendChild(errCard);
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'preview-office-container';
+
+    this.frame = document.createElement('iframe');
+    this.frame.className = 'preview-office-frame';
+    this.frame.sandbox = 'allow-scripts allow-same-origin';
+    this.frame.srcdoc = fileData.html;
+
+    wrapper.appendChild(this.frame);
+    container.appendChild(wrapper);
+  }
+
+  getActions(fileData, context) {
+    if (!fileData.html) return [];
+
+    const btnPopout = document.createElement('button');
+    btnPopout.className = 'btn btn-secondary';
+    btnPopout.textContent = '↗ Open in Tab';
+    btnPopout.title = 'Open full interactive document in a new browser tab';
+    btnPopout.addEventListener('click', () => {
+      const blob = new Blob([fileData.html], { type: 'text/html;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+    });
+
+    return [btnPopout];
+  }
+
+  destroy() {
+    if (this.frame) {
+      this.frame.srcdoc = '';
+      this.frame = null;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 9. Default Fallback Strategy (For unsupported binary files: Archives, Executables, etc.)
 // ---------------------------------------------------------------------------
 class DefaultBinaryPreviewStrategy {
   constructor() {
@@ -758,7 +1158,7 @@ class DefaultBinaryPreviewStrategy {
     if (fileData.ext === '.pdf') {
       desc.innerHTML = 'PDF Document.<br><span style="color:var(--text-muted);font-size:11px;">PDF file exceeds 25MB preview limit.</span>';
     } else if (['.docx', '.xlsx', '.pptx'].includes(fileData.ext)) {
-      desc.innerHTML = 'Office Document.<br><span style="color:var(--text-muted);font-size:11px;">Office document previewer can be integrated via Office CLI converter.</span>';
+      desc.innerHTML = 'Office Document.<br><span style="color:var(--text-muted);font-size:11px;">Office document converter failed or file exceeds limit.</span>';
     } else {
       desc.innerHTML = 'Binary file.<br><span style="color:var(--text-muted);font-size:11px;">No dedicated preview module registered for this format yet.</span>';
     }
@@ -836,7 +1236,10 @@ class PreviewManager {
 const previewManager = new PreviewManager();
 previewManager.register(new ImagePreviewStrategy(), 100);
 previewManager.register(new MarkdownPreviewStrategy(), 90);
+previewManager.register(new CsvPreviewStrategy(), 88);
 previewManager.register(new HtmlPreviewStrategy(), 85);
+previewManager.register(new MediaPreviewStrategy(), 84);
+previewManager.register(new OfficePreviewStrategy(), 82);
 previewManager.register(new PdfPreviewStrategy(), 80);
 previewManager.register(new CodePreviewStrategy(), 50);
 previewManager.register(new DefaultBinaryPreviewStrategy(), 0);

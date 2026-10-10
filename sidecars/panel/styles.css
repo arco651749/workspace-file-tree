@@ -880,3 +880,187 @@ code.hljs {
   user-select: none;
   font-weight: 500;
 }
+
+/* Office Viewer */
+.preview-office-container {
+  width: 100%;
+  height: 100%;
+  min-height: 480px;
+  background: var(--bg-primary);
+  display: flex;
+}
+
+.preview-office-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+  border-radius: 4px;
+}
+
+/* CSV / TSV Interactive Table */
+.preview-csv-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 280px;
+  gap: 8px;
+}
+
+.csv-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 2px 0;
+}
+
+.csv-search-input {
+  flex: 1;
+  max-width: 260px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.csv-search-input:focus {
+  border-color: var(--accent-blue);
+}
+
+.csv-meta-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.csv-table-wrapper {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+}
+
+.csv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.csv-th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  padding: 6px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s ease;
+}
+
+.csv-th:hover {
+  background: var(--bg-hover);
+  color: var(--accent-blue);
+}
+
+.csv-sort-icon {
+  font-size: 10px;
+  color: var(--accent-blue);
+}
+
+.csv-td {
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.csv-tr-even {
+  background: var(--bg-primary);
+}
+
+.csv-tr-odd {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.csv-table tr:hover {
+  background: var(--bg-hover);
+}
+
+/* Audio & Video Media Players */
+.preview-audio-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 20px;
+}
+
+.media-audio-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 32px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+}
+
+.audio-icon-badge {
+  font-size: 40px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
+}
+
+.audio-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.audio-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.media-audio-player {
+  width: 100%;
+  margin-top: 6px;
+  outline: none;
+}
+
+.preview-video-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  padding: 16px;
+  background: var(--bg-primary);
+}
+
+.media-video-player {
+  max-width: 100%;
+  max-height: 480px;
+  border-radius: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  background: #000000;
+  outline: none;
+}
