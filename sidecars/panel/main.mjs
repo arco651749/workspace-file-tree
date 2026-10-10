@@ -51,6 +51,8 @@ app.page('/', () => readLocal('index.html'));
 app.page('/app.js', () => readLocal('app.js'));
 app.page('/previewers.js', () => readLocal('previewers.js'));
 app.page('/highlight.min.js', () => readLocal('highlight.min.js'));
+app.page('/pdf.min.js', () => readLocal('pdf.min.js'));
+app.page('/pdf.worker.min.js', () => readLocal('pdf.worker.min.js'));
 app.api('/styles.css', () => new Response(readLocal('styles.css'), { contentType: 'text/css' }), 'GET');
 
 // ---------------------------------------------------------------------------
@@ -197,6 +199,31 @@ app.api('/api/file-content', (data) => {
         ext,
         isImage: true,
         dataUrl,
+        size: st.size,
+        name: basename(fullPath),
+        path: relative(root, fullPath),
+      };
+    }
+
+    // PDF file preview (up to 25MB)
+    if (ext === '.pdf') {
+      const maxPdfBytes = 25 * 1024 * 1024;
+      if (st.size > maxPdfBytes) {
+        return {
+          ext: '.pdf',
+          isPdf: false,
+          isBinary: true,
+          size: st.size,
+          name: basename(fullPath),
+          path: relative(root, fullPath),
+          message: 'PDF exceeds 25MB preview limit'
+        };
+      }
+      const buffer = readFileSync(fullPath);
+      return {
+        ext: '.pdf',
+        isPdf: true,
+        base64: buffer.toString('base64'),
         size: st.size,
         name: basename(fullPath),
         path: relative(root, fullPath),

@@ -847,3 +847,36 @@ code.hljs {
   font-style: italic;
   font-size: 11px;
 }
+
+/* PDF Viewer */
+.pdf-viewer-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100%;
+  padding: 16px;
+  background: var(--bg-primary);
+  overflow: auto;
+}
+
+.pdf-canvas-wrapper {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  background: #ffffff;
+  display: flex;
+  max-width: 100%;
+}
+
+.pdf-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.pdf-page-indicator {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 6px;
+  user-select: none;
+  font-weight: 500;
+}

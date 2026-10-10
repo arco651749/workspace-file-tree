@@ -451,7 +451,279 @@ class CodePreviewStrategy {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Default Fallback Strategy (For unsupported binary files: PDF, Office, Archives)
+// 5. PDF Preview Strategy (Mozilla PDF.js Canvas Rendering with Page & Zoom Controls)
+// ---------------------------------------------------------------------------
+class PdfPreviewStrategy {
+  constructor() {
+    this.id = 'pdf';
+    this.name = 'PDF Viewer';
+    this.icon = '📕';
+    this.pdfDoc = null;
+    this.currentPage = 1;
+    this.scale = 1.0;
+    this.renderTask = null;
+    this.canvas = null;
+    this.context = null;
+    this.fileData = null;
+    this.pageIndicator = null;
+    this.zoomIndicator = null;
+    this.btnPrev = null;
+    this.btnNext = null;
+
+    if (window.pdfjsLib && !window.pdfjsLib.GlobalWorkerOptions?.workerSrc) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+    }
+  }
+
+  supports(fileData) {
+    return fileData.ext === '.pdf' || Boolean(fileData.isPdf);
+  }
+
+  async render(container, fileData, context) {
+    this.container = container;
+    this.fileData = fileData;
+    this.context = context;
+    container.innerHTML = '';
+
+    if (!fileData.base64) {
+      const errCard = document.createElement('div');
+      errCard.className = 'preview-fallback-card';
+      errCard.innerHTML = `
+        <div class="fallback-icon">⚠️</div>
+        <div class="fallback-name">${escapeHtml(fileData.name)}</div>
+        <div class="fallback-desc">${escapeHtml(fileData.message || 'No PDF data received or file exceeds 25MB limit.')}</div>
+      `;
+      container.appendChild(errCard);
+      return;
+    }
+
+    if (!window.pdfjsLib) {
+      const errCard = document.createElement('div');
+      errCard.className = 'preview-fallback-card';
+      errCard.innerHTML = `
+        <div class="fallback-icon">⚠️</div>
+        <div class="fallback-name">PDF Engine Missing</div>
+        <div class="fallback-desc">pdf.min.js library failed to load in the current environment.</div>
+      `;
+      container.appendChild(errCard);
+      return;
+    }
+
+    if (!window.pdfjsLib.GlobalWorkerOptions?.workerSrc) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+    }
+
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'loading-state';
+    loadingDiv.textContent = 'Rendering PDF document...';
+    container.appendChild(loadingDiv);
+
+    try {
+      const binaryString = atob(fileData.base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const loadingTask = window.pdfjsLib.getDocument({ data: bytes });
+      this.pdfDoc = await loadingTask.promise;
+      this.currentPage = 1;
+      this.scale = 1.0;
+
+      container.innerHTML = '';
+
+      const viewerContainer = document.createElement('div');
+      viewerContainer.className = 'pdf-viewer-container';
+
+      const canvasWrapper = document.createElement('div');
+      canvasWrapper.className = 'pdf-canvas-wrapper';
+
+      this.canvas = document.createElement('canvas');
+      this.canvas.className = 'pdf-canvas';
+      canvasWrapper.appendChild(this.canvas);
+      viewerContainer.appendChild(canvasWrapper);
+      container.appendChild(viewerContainer);
+
+      await this.renderCurrentPage();
+      this.updateControls();
+    } catch (err) {
+      console.error('PDF render error:', err);
+      container.innerHTML = '';
+      const errCard = document.createElement('div');
+      errCard.className = 'preview-fallback-card';
+      errCard.innerHTML = `
+        <div class="fallback-icon">❌</div>
+        <div class="fallback-name">PDF Render Failed</div>
+        <div class="fallback-desc">${escapeHtml(err.message || String(err))}</div>
+      `;
+      container.appendChild(errCard);
+    }
+  }
+
+  async renderCurrentPage() {
+    if (!this.pdfDoc || !this.canvas) return;
+
+    if (this.renderTask) {
+      try {
+        this.renderTask.cancel();
+      } catch (_) {}
+      this.renderTask = null;
+    }
+
+    try {
+      const page = await this.pdfDoc.getPage(this.currentPage);
+      const dpr = window.devicePixelRatio || 1;
+      const viewport = page.getViewport({ scale: this.scale * dpr });
+
+      this.canvas.width = Math.floor(viewport.width);
+      this.canvas.height = Math.floor(viewport.height);
+      this.canvas.style.width = Math.floor(viewport.width / dpr) + 'px';
+      this.canvas.style.height = Math.floor(viewport.height / dpr) + 'px';
+
+      const ctx = this.canvas.getContext('2d');
+      this.renderTask = page.render({
+        canvasContext: ctx,
+        viewport: viewport
+      });
+
+      await this.renderTask.promise;
+      this.renderTask = null;
+
+      if (this.context && typeof this.context.setSizeText === 'function') {
+        this.context.setSizeText(
+          `${this.context.formatSize(this.fileData.size)} · Page ${this.currentPage} of ${this.pdfDoc.numPages}`
+        );
+      }
+    } catch (err) {
+      if (err?.name !== 'RenderingCancelledException') {
+        console.warn('Page rendering error:', err);
+      }
+    }
+  }
+
+  updateControls() {
+    if (!this.pdfDoc) return;
+    const total = this.pdfDoc.numPages;
+
+    if (this.pageIndicator) {
+      this.pageIndicator.textContent = `${this.currentPage} / ${total}`;
+    }
+    if (this.btnPrev) {
+      this.btnPrev.disabled = this.currentPage <= 1;
+    }
+    if (this.btnNext) {
+      this.btnNext.disabled = this.currentPage >= total;
+    }
+    if (this.zoomIndicator) {
+      this.zoomIndicator.textContent = `${Math.round(this.scale * 100)}%`;
+    }
+  }
+
+  getActions(fileData, context) {
+    const actions = [];
+
+    // Prev Button
+    this.btnPrev = document.createElement('button');
+    this.btnPrev.className = 'btn btn-secondary';
+    this.btnPrev.textContent = '◀';
+    this.btnPrev.title = 'Previous Page';
+    this.btnPrev.addEventListener('click', async () => {
+      if (this.pdfDoc && this.currentPage > 1) {
+        this.currentPage--;
+        this.updateControls();
+        await this.renderCurrentPage();
+      }
+    });
+    actions.push(this.btnPrev);
+
+    // Page Indicator
+    this.pageIndicator = document.createElement('span');
+    this.pageIndicator.className = 'pdf-page-indicator';
+    this.pageIndicator.textContent = '1 / -';
+    actions.push(this.pageIndicator);
+
+    // Next Button
+    this.btnNext = document.createElement('button');
+    this.btnNext.className = 'btn btn-secondary';
+    this.btnNext.textContent = '▶';
+    this.btnNext.title = 'Next Page';
+    this.btnNext.addEventListener('click', async () => {
+      if (this.pdfDoc && this.currentPage < this.pdfDoc.numPages) {
+        this.currentPage++;
+        this.updateControls();
+        await this.renderCurrentPage();
+      }
+    });
+    actions.push(this.btnNext);
+
+    // Zoom Out Button
+    const btnZoomOut = document.createElement('button');
+    btnZoomOut.className = 'btn btn-secondary';
+    btnZoomOut.textContent = '−';
+    btnZoomOut.title = 'Zoom Out';
+    btnZoomOut.addEventListener('click', async () => {
+      if (this.scale > 0.5) {
+        this.scale = Math.max(0.5, Math.round((this.scale - 0.25) * 100) / 100);
+        this.updateControls();
+        await this.renderCurrentPage();
+      }
+    });
+    actions.push(btnZoomOut);
+
+    // Zoom Level Button / Reset to 100%
+    this.zoomIndicator = document.createElement('button');
+    this.zoomIndicator.className = 'btn btn-secondary';
+    this.zoomIndicator.textContent = '100%';
+    this.zoomIndicator.title = 'Reset Zoom to 100%';
+    this.zoomIndicator.addEventListener('click', async () => {
+      this.scale = 1.0;
+      this.updateControls();
+      await this.renderCurrentPage();
+    });
+    actions.push(this.zoomIndicator);
+
+    // Zoom In Button
+    const btnZoomIn = document.createElement('button');
+    btnZoomIn.className = 'btn btn-secondary';
+    btnZoomIn.textContent = '+';
+    btnZoomIn.title = 'Zoom In';
+    btnZoomIn.addEventListener('click', async () => {
+      if (this.scale < 3.0) {
+        this.scale = Math.min(3.0, Math.round((this.scale + 0.25) * 100) / 100);
+        this.updateControls();
+        await this.renderCurrentPage();
+      }
+    });
+    actions.push(btnZoomIn);
+
+    this.updateControls();
+    return actions;
+  }
+
+  destroy() {
+    if (this.renderTask) {
+      try {
+        this.renderTask.cancel();
+      } catch (_) {}
+      this.renderTask = null;
+    }
+    if (this.pdfDoc) {
+      try {
+        this.pdfDoc.destroy();
+      } catch (_) {}
+      this.pdfDoc = null;
+    }
+    this.canvas = null;
+    this.pageIndicator = null;
+    this.zoomIndicator = null;
+    this.btnPrev = null;
+    this.btnNext = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 6. Default Fallback Strategy (For unsupported binary files: Office, Archives, etc.)
 // ---------------------------------------------------------------------------
 class DefaultBinaryPreviewStrategy {
   constructor() {
@@ -484,7 +756,7 @@ class DefaultBinaryPreviewStrategy {
     const desc = document.createElement('div');
     desc.className = 'fallback-desc';
     if (fileData.ext === '.pdf') {
-      desc.innerHTML = 'PDF Document.<br><span style="color:var(--text-muted);font-size:11px;">PDF previewer module will be supported via dedicated converter/renderer.</span>';
+      desc.innerHTML = 'PDF Document.<br><span style="color:var(--text-muted);font-size:11px;">PDF file exceeds 25MB preview limit.</span>';
     } else if (['.docx', '.xlsx', '.pptx'].includes(fileData.ext)) {
       desc.innerHTML = 'Office Document.<br><span style="color:var(--text-muted);font-size:11px;">Office document previewer can be integrated via Office CLI converter.</span>';
     } else {
@@ -565,6 +837,7 @@ const previewManager = new PreviewManager();
 previewManager.register(new ImagePreviewStrategy(), 100);
 previewManager.register(new MarkdownPreviewStrategy(), 90);
 previewManager.register(new HtmlPreviewStrategy(), 85);
+previewManager.register(new PdfPreviewStrategy(), 80);
 previewManager.register(new CodePreviewStrategy(), 50);
 previewManager.register(new DefaultBinaryPreviewStrategy(), 0);
 
