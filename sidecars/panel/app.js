@@ -720,6 +720,7 @@ async function init() {
     if (body) body.innerHTML = '';
     const customActions = $('preview-custom-actions');
     if (customActions) customActions.innerHTML = '';
+    if ($('btn-send-agent')) $('btn-send-agent').hidden = false;
     activePreviewFile = null;
   });
 

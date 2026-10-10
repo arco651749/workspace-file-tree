@@ -299,7 +299,6 @@ class ImagePreviewStrategy {
   }
 
   render(container, fileData, context) {
-    this.destroy();
     this.container = container;
     this.fileData = fileData;
     this.context = context;
@@ -371,6 +370,11 @@ class ImagePreviewStrategy {
 
   initCanvas() {
     if (!this.imgEl || !this.innerWrapper) return;
+    if (this.canvasEl) {
+      this.canvasEl.remove();
+      this.canvasEl = null;
+      this.ctx = null;
+    }
 
     const naturalW = this.imgEl.naturalWidth || this.imgEl.clientWidth || 800;
     const naturalH = this.imgEl.naturalHeight || this.imgEl.clientHeight || 600;
