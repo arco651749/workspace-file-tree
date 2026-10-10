@@ -246,12 +246,52 @@ function parseMarkdownToHtml(markdown) {
 // ---------------------------------------------------------------------------
 // 1. Image Preview Strategy
 // ---------------------------------------------------------------------------
+function drawArrow(ctx, fromX, fromY, toX, toY, color, width) {
+  const headLen = Math.max(14, width * 3);
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const angle = Math.atan2(dy, dx);
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(fromX, fromY);
+  ctx.lineTo(toX, toY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headLen * Math.cos(angle - Math.PI / 6), toY - headLen * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(toX - headLen * Math.cos(angle + Math.PI / 6), toY - headLen * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
 class ImagePreviewStrategy {
   constructor() {
     this.id = 'image';
     this.name = 'Image Viewer';
     this.icon = '🖼️';
     this.imgEl = null;
+    this.container = null;
+    this.innerWrapper = null;
+    this.canvasEl = null;
+    this.ctx = null;
+    this.toolbarEl = null;
+    this.isAnnotating = false;
+    this.currentTool = 'pen'; // 'pen' | 'rect' | 'arrow'
+    this.currentColor = '#ef4444';
+    this.currentLineWidth = 4;
+    this.history = [];
+    this.fileData = null;
+    this.context = null;
+    this.annotBtn = null;
   }
 
   supports(fileData) {
@@ -261,9 +301,17 @@ class ImagePreviewStrategy {
   }
 
   render(container, fileData, context) {
+    this.destroy();
+    this.container = container;
+    this.fileData = fileData;
+    this.context = context;
+
     container.innerHTML = '';
     const wrapper = document.createElement('div');
     wrapper.className = 'preview-image-container';
+
+    this.innerWrapper = document.createElement('div');
+    this.innerWrapper.className = 'preview-image-inner-wrapper';
 
     this.imgEl = document.createElement('img');
     this.imgEl.alt = fileData.name || 'Image Preview';
@@ -276,11 +324,315 @@ class ImagePreviewStrategy {
     };
 
     this.imgEl.src = fileData.dataUrl || '';
-    wrapper.appendChild(this.imgEl);
+    this.innerWrapper.appendChild(this.imgEl);
+    wrapper.appendChild(this.innerWrapper);
     container.appendChild(wrapper);
   }
 
+  getActions(fileData, context) {
+    this.annotBtn = document.createElement('button');
+    this.annotBtn.className = 'btn btn-secondary';
+    this.annotBtn.textContent = '✏️ 畫筆標註';
+    this.annotBtn.title = '在圖片上做記號並回傳對話框';
+    this.annotBtn.addEventListener('click', () => {
+      if (this.isAnnotating) {
+        this.stopAnnotating();
+      } else {
+        this.startAnnotating();
+      }
+    });
+    return [this.annotBtn];
+  }
+
+  startAnnotating() {
+    if (!this.imgEl || !this.innerWrapper) return;
+    this.isAnnotating = true;
+    if (this.annotBtn) {
+      this.annotBtn.textContent = '✕ 離開標註';
+      this.annotBtn.classList.add('active');
+    }
+
+    const naturalW = this.imgEl.naturalWidth || this.imgEl.clientWidth || 800;
+    const naturalH = this.imgEl.naturalHeight || this.imgEl.clientHeight || 600;
+
+    // Create Annotation Canvas
+    this.canvasEl = document.createElement('canvas');
+    this.canvasEl.className = 'annotation-canvas';
+    this.canvasEl.width = naturalW;
+    this.canvasEl.height = naturalH;
+    this.ctx = this.canvasEl.getContext('2d');
+    this.history = [];
+
+    this.innerWrapper.appendChild(this.canvasEl);
+
+    // Create Annotation Floating Toolbar
+    this.toolbarEl = document.createElement('div');
+    this.toolbarEl.className = 'annotation-toolbar';
+    this.toolbarEl.innerHTML = `
+      <div class="annot-tool-group">
+        <button class="annot-btn active" data-tool="pen" title="畫筆 (Freehand)">✏️</button>
+        <button class="annot-btn" data-tool="rect" title="框選 (Box)">🔲</button>
+        <button class="annot-btn" data-tool="arrow" title="箭頭 (Arrow)">➡️</button>
+      </div>
+      <div class="annot-divider"></div>
+      <div class="annot-color-group">
+        <span class="color-dot active" data-color="#ef4444" style="background:#ef4444;" title="紅色"></span>
+        <span class="color-dot" data-color="#eab308" style="background:#eab308;" title="黃色"></span>
+        <span class="color-dot" data-color="#22c55e" style="background:#22c55e;" title="綠色"></span>
+        <span class="color-dot" data-color="#3b82f6" style="background:#3b82f6;" title="藍色"></span>
+        <span class="color-dot" data-color="#ffffff" style="background:#ffffff;" title="白色"></span>
+      </div>
+      <div class="annot-divider"></div>
+      <div class="annot-size-group">
+        <button class="size-btn" data-size="2">細</button>
+        <button class="size-btn active" data-size="4">中</button>
+        <button class="size-btn" data-size="8">粗</button>
+      </div>
+      <div class="annot-divider"></div>
+      <div class="annot-action-group">
+        <button class="annot-action-btn" id="btn-annot-undo" title="復原上一筆">↩️ 復原</button>
+        <button class="annot-action-btn" id="btn-annot-clear" title="清空所有標註">🗑️ 清空</button>
+        <button class="annot-action-btn btn-primary" id="btn-annot-send" title="將標註圖片傳送至 Agent 對話框">💬 送至對話框</button>
+        <button class="annot-action-btn" id="btn-annot-close" title="取消標註">✕</button>
+      </div>
+    `;
+
+    this.container.appendChild(this.toolbarEl);
+    this.setupDrawingListeners();
+    this.setupToolbarListeners();
+  }
+
+  setupToolbarListeners() {
+    if (!this.toolbarEl) return;
+
+    // Tool selection
+    this.toolbarEl.querySelectorAll('.annot-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        this.toolbarEl.querySelectorAll('.annot-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.currentTool = btn.dataset.tool;
+      });
+    });
+
+    // Color selection
+    this.toolbarEl.querySelectorAll('.color-dot').forEach(dot => {
+      dot.addEventListener('click', (e) => {
+        this.toolbarEl.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+        dot.classList.add('active');
+        this.currentColor = dot.dataset.color;
+      });
+    });
+
+    // Size selection
+    this.toolbarEl.querySelectorAll('.size-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        this.toolbarEl.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.currentLineWidth = parseInt(btn.dataset.size, 10);
+      });
+    });
+
+    // Undo
+    this.toolbarEl.querySelector('#btn-annot-undo')?.addEventListener('click', () => {
+      if (this.history.length > 0) {
+        const lastState = this.history.pop();
+        this.ctx.putImageData(lastState, 0, 0);
+      } else {
+        this.ctx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
+      }
+    });
+
+    // Clear
+    this.toolbarEl.querySelector('#btn-annot-clear')?.addEventListener('click', () => {
+      this.saveHistory();
+      this.ctx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
+    });
+
+    // Close
+    this.toolbarEl.querySelector('#btn-annot-close')?.addEventListener('click', () => {
+      this.stopAnnotating();
+    });
+
+    // Send to Chat
+    this.toolbarEl.querySelector('#btn-annot-send')?.addEventListener('click', async () => {
+      await this.sendAnnotatedImageToChat();
+    });
+  }
+
+  saveHistory() {
+    if (!this.ctx || !this.canvasEl) return;
+    try {
+      const snap = this.ctx.getImageData(0, 0, this.canvasEl.width, this.canvasEl.height);
+      this.history.push(snap);
+      if (this.history.length > 20) this.history.shift();
+    } catch (_) {}
+  }
+
+  setupDrawingListeners() {
+    if (!this.canvasEl) return;
+    let isDrawing = false;
+    let startX = 0;
+    let startY = 0;
+    let strokeSnapshot = null;
+
+    const getCanvasCoords = (e) => {
+      const rect = this.canvasEl.getBoundingClientRect();
+      const scaleX = this.canvasEl.width / rect.width;
+      const scaleY = this.canvasEl.height / rect.height;
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+      };
+    };
+
+    this.canvasEl.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.canvasEl.setPointerCapture(e.pointerId);
+      isDrawing = true;
+      this.saveHistory();
+
+      const { x, y } = getCanvasCoords(e);
+      startX = x;
+      startY = y;
+
+      strokeSnapshot = this.ctx.getImageData(0, 0, this.canvasEl.width, this.canvasEl.height);
+
+      if (this.currentTool === 'pen') {
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, y);
+      }
+    });
+
+    this.canvasEl.addEventListener('pointermove', (e) => {
+      if (!isDrawing) return;
+      e.preventDefault();
+      const { x, y } = getCanvasCoords(e);
+
+      const naturalScale = Math.max(1, this.canvasEl.width / 800);
+      const actualWidth = this.currentLineWidth * naturalScale;
+
+      if (this.currentTool === 'pen') {
+        this.ctx.strokeStyle = this.currentColor;
+        this.ctx.lineWidth = actualWidth;
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        this.ctx.lineTo(x, y);
+        this.ctx.stroke();
+      } else if (this.currentTool === 'rect') {
+        if (strokeSnapshot) this.ctx.putImageData(strokeSnapshot, 0, 0);
+        this.ctx.strokeStyle = this.currentColor;
+        this.ctx.lineWidth = actualWidth;
+        this.ctx.strokeRect(startX, startY, x - startX, y - startY);
+      } else if (this.currentTool === 'arrow') {
+        if (strokeSnapshot) this.ctx.putImageData(strokeSnapshot, 0, 0);
+        drawArrow(this.ctx, startX, startY, x, y, this.currentColor, actualWidth);
+      }
+    });
+
+    const finishDrawing = (e) => {
+      if (!isDrawing) return;
+      isDrawing = false;
+      try { this.canvasEl.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+
+    this.canvasEl.addEventListener('pointerup', finishDrawing);
+    this.canvasEl.addEventListener('pointercancel', finishDrawing);
+  }
+
+  async sendAnnotatedImageToChat() {
+    const sendBtn = this.toolbarEl?.querySelector('#btn-annot-send');
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.textContent = '⏳ 送出中...';
+    }
+
+    try {
+      const naturalW = this.imgEl.naturalWidth || this.canvasEl.width;
+      const naturalH = this.imgEl.naturalHeight || this.canvasEl.height;
+
+      const mergedCanvas = document.createElement('canvas');
+      mergedCanvas.width = naturalW;
+      mergedCanvas.height = naturalH;
+      const mergedCtx = mergedCanvas.getContext('2d');
+
+      mergedCtx.drawImage(this.imgEl, 0, 0, naturalW, naturalH);
+      mergedCtx.drawImage(this.canvasEl, 0, 0, naturalW, naturalH);
+
+      const base64 = mergedCanvas.toDataURL('image/png');
+
+      // Copy PNG directly to Clipboard
+      mergedCanvas.toBlob(async (blob) => {
+        try {
+          if (blob && navigator.clipboard && window.ClipboardItem) {
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          }
+        } catch (_) {}
+      });
+
+      // Save to disk through Sidecar API
+      if (window.sidecar && window.sidecar.fetch) {
+        const res = await window.sidecar.fetch('/api/save-annotated-image', {
+          method: 'POST',
+          body: JSON.stringify({
+            base64,
+            originalPath: this.fileData.path,
+          })
+        });
+
+        const data = await res.json();
+        if (data.fullPath) {
+          const cleanPath = data.fullPath.replace(/\\/g, '/');
+          const prompt = `Here is the annotated image with my markings on \`${this.fileData.name}\`:\n\n![Annotated Image](file:///${cleanPath})\n`;
+
+          if (window.sidecar.agent) {
+            await window.sidecar.agent.sendMessage(prompt);
+          }
+
+          if (typeof showToast === 'function') {
+            showToast('標註圖片已送至 Agent 對話框並複製到剪貼簿！');
+          }
+          this.stopAnnotating();
+          return;
+        }
+      }
+
+      if (typeof showToast === 'function') {
+        showToast('標註圖片已複製到剪貼簿（可直接在輸入框 Ctrl+V 貼上）！');
+      }
+      this.stopAnnotating();
+    } catch (err) {
+      console.error('Failed to send annotated image:', err);
+      if (typeof showToast === 'function') {
+        showToast(`發送失敗: ${err.message}`);
+      }
+    } finally {
+      if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '💬 送至對話框';
+      }
+    }
+  }
+
+  stopAnnotating() {
+    this.isAnnotating = false;
+    if (this.annotBtn) {
+      this.annotBtn.textContent = '✏️ 畫筆標註';
+      this.annotBtn.classList.remove('active');
+    }
+    if (this.toolbarEl) {
+      this.toolbarEl.remove();
+      this.toolbarEl = null;
+    }
+    if (this.canvasEl) {
+      this.canvasEl.remove();
+      this.canvasEl = null;
+      this.ctx = null;
+    }
+    this.history = [];
+  }
+
   destroy() {
+    this.stopAnnotating();
     if (this.imgEl) {
       this.imgEl.src = '';
       this.imgEl = null;

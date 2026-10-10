@@ -414,6 +414,29 @@ async function openPreview(relPath) {
   }
 }
 
+let currentSelectedText = '';
+
+async function sendSelectionToAgent(relPath, selectedText) {
+  const ext = (relPath.split('.').pop() || 'text').toLowerCase();
+  const prompt = `Regarding \`${relPath}\`:\n\`\`\`${ext}\n${selectedText}\n\`\`\`\n`;
+
+  try {
+    await navigator.clipboard.writeText(prompt);
+  } catch (_) {}
+
+  if (!sidecar || !sidecar.agent) {
+    showToast(`Quoted snippet copied to clipboard!`);
+    return;
+  }
+
+  try {
+    await sidecar.agent.sendMessage(prompt);
+    showToast(`Quoted selection to Agent chat!`);
+  } catch (err) {
+    showToast(`Quoted snippet copied! (Agent: ${err.message})`);
+  }
+}
+
 async function sendFilePathToAgent(relPath) {
   if (!sidecar || !sidecar.agent) {
     showToast(`File path copied: ${relPath}`);
@@ -428,6 +451,86 @@ async function sendFilePathToAgent(relPath) {
   } catch (err) {
     showToast(`Could not send message: ${err.message}`);
   }
+}
+
+function setupTextSelectionQuote() {
+  const previewBody = $('preview-body');
+  const bubble = $('selection-quote-bubble');
+  const btnQuote = $('btn-quote-selection');
+  if (!previewBody || !bubble || !btnQuote) return;
+
+  function updateSelection() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !activePreviewFile) {
+      currentSelectedText = '';
+      bubble.hidden = true;
+      if ($('btn-send-agent')) {
+        $('btn-send-agent').textContent = '💬 Ask Agent';
+        $('btn-send-agent').title = 'Send file path to Agent';
+      }
+      return;
+    }
+
+    const text = sel.toString().trim();
+    const anchorNode = sel.anchorNode;
+    if (!previewBody.contains(anchorNode) || text.length === 0) {
+      currentSelectedText = '';
+      bubble.hidden = true;
+      if ($('btn-send-agent')) {
+        $('btn-send-agent').textContent = '💬 Ask Agent';
+        $('btn-send-agent').title = 'Send file path to Agent';
+      }
+      return;
+    }
+
+    currentSelectedText = text;
+    if ($('btn-send-agent')) {
+      $('btn-send-agent').textContent = '💬 Quote Text';
+      $('btn-send-agent').title = `Quote selected ${text.length} characters to Agent`;
+    }
+
+    try {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      const drawer = $('preview-drawer');
+      const drawerRect = drawer.getBoundingClientRect();
+
+      const bubbleWidth = 190;
+      let left = rect.left - drawerRect.left + (rect.width / 2) - (bubbleWidth / 2);
+      left = Math.max(10, Math.min(drawerRect.width - bubbleWidth - 10, left));
+      let top = rect.top - drawerRect.top - 36;
+      if (top < 40) top = rect.bottom - drawerRect.top + 6;
+
+      bubble.style.left = `${left}px`;
+      bubble.style.top = `${top}px`;
+      bubble.hidden = false;
+    } catch (_) {
+      bubble.hidden = true;
+    }
+  }
+
+  document.addEventListener('selectionchange', () => {
+    updateSelection();
+  });
+
+  previewBody.addEventListener('mouseup', () => {
+    setTimeout(updateSelection, 15);
+  });
+
+  btnQuote.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (currentSelectedText && activePreviewFile) {
+      const textToQuote = currentSelectedText;
+      const fileToQuote = activePreviewFile;
+      bubble.hidden = true;
+      currentSelectedText = '';
+      window.getSelection()?.removeAllRanges();
+      if ($('btn-send-agent')) {
+        $('btn-send-agent').textContent = '💬 Ask Agent';
+      }
+      await sendSelectionToAgent(fileToQuote, textToQuote);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -588,9 +691,20 @@ async function init() {
     activePreviewFile = null;
   });
 
-  $('btn-send-agent').addEventListener('click', () => {
+  $('btn-send-agent').addEventListener('click', async () => {
     if (activePreviewFile) {
-      sendFilePathToAgent(activePreviewFile);
+      if (currentSelectedText) {
+        const textToQuote = currentSelectedText;
+        const fileToQuote = activePreviewFile;
+        const bubble = $('selection-quote-bubble');
+        if (bubble) bubble.hidden = true;
+        currentSelectedText = '';
+        window.getSelection()?.removeAllRanges();
+        $('btn-send-agent').textContent = '💬 Ask Agent';
+        await sendSelectionToAgent(fileToQuote, textToQuote);
+      } else {
+        sendFilePathToAgent(activePreviewFile);
+      }
     }
   });
 
@@ -601,6 +715,7 @@ async function init() {
   });
 
   initResizer();
+  setupTextSelectionQuote();
   loadRootTree();
 }
 

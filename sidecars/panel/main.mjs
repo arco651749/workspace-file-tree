@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, relative, resolve, extname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
@@ -347,6 +347,38 @@ app.api('/api/file-content', async (data) => {
       name: basename(fullPath),
       path: relative(root, fullPath),
       content,
+    };
+  } catch (err) {
+    return { error: String(err.message || err) };
+  }
+});
+
+// 5. Save annotated image to disk
+app.api('/api/save-annotated-image', (data) => {
+  const root = resolveRoot(data);
+  if (!data?.base64) return { error: 'No image data provided' };
+
+  try {
+    const rawData = data.base64.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(rawData, 'base64');
+
+    const outDir = join(root, '.gemini', 'annotated');
+    if (!existsSync(outDir)) {
+      mkdirSync(outDir, { recursive: true });
+    }
+
+    const timestamp = Date.now();
+    const origBase = data.originalPath ? basename(data.originalPath, extname(data.originalPath)) : 'image';
+    const fileName = `annotated_${origBase}_${timestamp}.png`;
+    const fullPath = join(outDir, fileName);
+
+    writeFileSync(fullPath, buffer);
+
+    return {
+      success: true,
+      fullPath,
+      relPath: relative(root, fullPath),
+      name: fileName,
     };
   } catch (err) {
     return { error: String(err.message || err) };
