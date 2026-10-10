@@ -50,6 +50,7 @@ const readLocal = (name) => readFileSync(join(HERE, name), 'utf8');
 app.page('/', () => readLocal('index.html'));
 app.page('/app.js', () => readLocal('app.js'));
 app.page('/previewers.js', () => readLocal('previewers.js'));
+app.page('/highlight.min.js', () => readLocal('highlight.min.js'));
 app.api('/styles.css', () => new Response(readLocal('styles.css'), { contentType: 'text/css' }), 'GET');
 
 // ---------------------------------------------------------------------------

@@ -12,25 +12,73 @@
  */
 
 // ---------------------------------------------------------------------------
+// HTML Entity Escaper
+// ---------------------------------------------------------------------------
+function escapeHtml(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ---------------------------------------------------------------------------
+// Reusable VS Code Style Code Renderer with Gutter & Line Numbers
+// ---------------------------------------------------------------------------
+function renderCodeWithGutter(rawCode, language, truncated = false) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'code-viewer-container';
+
+  let highlightedHtml = '';
+  if (window.hljs) {
+    try {
+      if (language && window.hljs.getLanguage(language)) {
+        highlightedHtml = window.hljs.highlight(rawCode, { language }).value;
+      } else {
+        highlightedHtml = window.hljs.highlightAuto(rawCode).value;
+      }
+    } catch (err) {
+      highlightedHtml = escapeHtml(rawCode);
+    }
+  } else {
+    highlightedHtml = escapeHtml(rawCode);
+  }
+
+  const lines = highlightedHtml.split('\n');
+  const lineNumbers = lines.map((_, idx) => `<span>${idx + 1}</span>`).join('\n');
+
+  wrapper.innerHTML = `
+    <div class="code-gutter"><pre>${lineNumbers}</pre></div>
+    <div class="code-content"><pre><code class="hljs">${lines.join('\n')}</code></pre></div>
+  `;
+
+  if (truncated) {
+    const notice = document.createElement('div');
+    notice.className = 'code-truncated-notice';
+    notice.textContent = '[... Truncated due to size limit ...]';
+    wrapper.appendChild(notice);
+  }
+
+  return wrapper;
+}
+
+// ---------------------------------------------------------------------------
 // Markdown Parser (Self-contained, Zero Dependency)
 // ---------------------------------------------------------------------------
 function parseMarkdownToHtml(markdown) {
   if (!markdown) return '';
 
-  function escapeHtml(text) {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
   // Preserve and extract code blocks first
   const codeBlocks = [];
   let html = markdown.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
     const idx = codeBlocks.length;
-    codeBlocks.push({ lang: lang || 'text', code: escapeHtml(code.trimEnd()) });
+    codeBlocks.push({
+      lang: lang || 'text',
+      rawCode: code.trimEnd(),
+      code: escapeHtml(code.trimEnd())
+    });
     return `<!--CODE_BLOCK_${idx}-->`;
   });
 
@@ -153,10 +201,22 @@ function parseMarkdownToHtml(markdown) {
 
   let result = output.join('\n');
 
-  // Restore Code Blocks
+  // Restore Code Blocks with Syntax Highlighting
   result = result.replace(/<!--CODE_BLOCK_(\d+)-->/g, (m, idx) => {
     const item = codeBlocks[idx];
-    return `<div class="md-code-block"><div class="md-code-lang">${item.lang}</div><pre><code>${item.code}</code></pre></div>`;
+    let codeHtml = item.code;
+    if (window.hljs && item.lang) {
+      try {
+        if (window.hljs.getLanguage(item.lang)) {
+          codeHtml = window.hljs.highlight(item.rawCode, { language: item.lang }).value;
+        } else {
+          codeHtml = window.hljs.highlightAuto(item.rawCode).value;
+        }
+      } catch (err) {
+        codeHtml = item.code;
+      }
+    }
+    return `<div class="md-code-block"><div class="md-code-lang">${item.lang}</div><pre><code class="hljs">${codeHtml}</code></pre></div>`;
   });
 
   // Restore Inline Code
@@ -251,12 +311,8 @@ class MarkdownPreviewStrategy {
       mdDiv.innerHTML = parseMarkdownToHtml(fileData.content || '');
       container.appendChild(mdDiv);
     } else {
-      const pre = document.createElement('pre');
-      pre.className = 'preview-code-block';
-      const code = document.createElement('code');
-      code.textContent = fileData.content || '';
-      pre.appendChild(code);
-      container.appendChild(pre);
+      const codeView = renderCodeWithGutter(fileData.content || '', 'markdown', fileData.truncated);
+      container.appendChild(codeView);
     }
   }
 
@@ -305,12 +361,8 @@ class HtmlPreviewStrategy {
       frameWrapper.appendChild(this.frame);
       container.appendChild(frameWrapper);
     } else {
-      const pre = document.createElement('pre');
-      pre.className = 'preview-code-block';
-      const code = document.createElement('code');
-      code.textContent = fileData.content || '';
-      pre.appendChild(code);
-      container.appendChild(pre);
+      const codeView = renderCodeWithGutter(fileData.content || '', 'xml', fileData.truncated);
+      container.appendChild(codeView);
     }
   }
 
@@ -336,7 +388,7 @@ class HtmlPreviewStrategy {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Code & Text Preview Strategy (Standard code view)
+// 4. Code & Text Preview Strategy (Colorized with Line Numbers)
 // ---------------------------------------------------------------------------
 class CodePreviewStrategy {
   constructor() {
@@ -351,12 +403,48 @@ class CodePreviewStrategy {
 
   render(container, fileData, context) {
     container.innerHTML = '';
-    const pre = document.createElement('pre');
-    pre.className = 'preview-code-block';
-    const code = document.createElement('code');
-    code.textContent = (fileData.content || '') + (fileData.truncated ? '\n\n[... Truncated due to size limit ...]' : '');
-    pre.appendChild(code);
-    container.appendChild(pre);
+    const ext = (fileData.ext || '').replace(/^\./, '').toLowerCase();
+
+    // Mapping common file extensions to Highlight.js languages
+    const langMap = {
+      'py': 'python',
+      'c': 'c',
+      'h': 'c',
+      'cpp': 'cpp',
+      'cc': 'cpp',
+      'cxx': 'cpp',
+      'hpp': 'cpp',
+      'go': 'go',
+      'js': 'javascript',
+      'mjs': 'javascript',
+      'cjs': 'javascript',
+      'ts': 'typescript',
+      'tsx': 'typescript',
+      'jsx': 'javascript',
+      'json': 'json',
+      'yaml': 'yaml',
+      'yml': 'yaml',
+      'sh': 'bash',
+      'bash': 'bash',
+      'ps1': 'powershell',
+      'rs': 'rust',
+      'java': 'java',
+      'css': 'css',
+      'scss': 'css',
+      'less': 'css',
+      'html': 'xml',
+      'xml': 'xml',
+      'svg': 'xml',
+      'sql': 'sql',
+      'diff': 'diff',
+      'ini': 'ini',
+      'toml': 'ini'
+    };
+
+    const targetLang = langMap[ext];
+    const rawCode = fileData.content || '';
+    const codeView = renderCodeWithGutter(rawCode, targetLang, fileData.truncated);
+    container.appendChild(codeView);
   }
 
   destroy() {}
@@ -443,11 +531,9 @@ class PreviewManager {
     this.activeStrategy = strategy;
 
     if (strategy) {
-      // Update drawer icon
       if (strategy.icon && context.setIcon) {
         context.setIcon(strategy.icon);
       }
-      // Populate custom toolbar actions
       if (context.actionsHost) {
         context.actionsHost.innerHTML = '';
         if (typeof strategy.getActions === 'function') {

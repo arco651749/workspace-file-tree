@@ -713,3 +713,137 @@ body {
   from { opacity: 0; transform: translate(-50%, 6px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+
+/* VS Code Dark+ Syntax Highlighting Theme */
+pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 0;
+  background: transparent;
+}
+code.hljs {
+  padding: 0;
+}
+.hljs {
+  background: transparent;
+  color: #d4d4d4;
+}
+.hljs-keyword, .hljs-literal, .hljs-name, .hljs-symbol {
+  color: #569cd6;
+}
+.hljs-link {
+  color: #569cd6;
+  text-decoration: underline;
+}
+.hljs-built_in, .hljs-type, .hljs-class {
+  color: #4ec9b0;
+}
+.hljs-number {
+  color: #b5cea8;
+}
+.hljs-meta .hljs-string, .hljs-string {
+  color: #ce9178;
+}
+.hljs-regexp, .hljs-template-tag {
+  color: #d16969;
+}
+.hljs-formula, .hljs-function, .hljs-params, .hljs-subst, .hljs-title {
+  color: #dcdcdc;
+}
+.hljs-function .hljs-title {
+  color: #dcdcaa;
+}
+.hljs-comment, .hljs-quote {
+  color: #6a9955;
+  font-style: italic;
+}
+.hljs-doctag {
+  color: #608b4e;
+}
+.hljs-meta, .hljs-meta .hljs-keyword, .hljs-tag {
+  color: #9cdcfe;
+}
+.hljs-template-variable, .hljs-variable {
+  color: #9cdcfe;
+}
+.hljs-attr, .hljs-attribute {
+  color: #9cdcfe;
+}
+.hljs-section {
+  color: gold;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
+}
+.hljs-bullet, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id, .hljs-selector-pseudo, .hljs-selector-tag {
+  color: #d7ba7d;
+}
+.hljs-addition {
+  background-color: #144212;
+  display: inline-block;
+  width: 100%;
+}
+.hljs-deletion {
+  background-color: #600;
+  display: inline-block;
+  width: 100%;
+}
+
+/* Code Viewer with Line Number Gutter */
+.code-viewer-container {
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  min-height: 100%;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  overflow: auto;
+}
+
+.code-gutter {
+  user-select: none;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  padding: 8px 10px 8px 12px;
+  text-align: right;
+  color: var(--text-muted);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.code-gutter pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.code-gutter span {
+  display: block;
+}
+
+.code-content {
+  flex: 1;
+  overflow-x: auto;
+  padding: 8px 12px;
+}
+
+.code-content pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre;
+}
+
+.code-truncated-notice {
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 11px;
+}
