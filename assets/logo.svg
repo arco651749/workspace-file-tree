@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <rect width="64" height="64" rx="14" fill="#2563EB"/>
+  <!-- Folder icon -->
+  <path d="M16 22C16 20.8954 16.8954 20 18 20H26.5858C27.1163 20 27.6251 20.2107 28 20.5858L30.4142 23H46C47.1046 23 48 23.8954 48 25V42C48 43.1046 47.1046 44 46 44H18C16.8954 44 16 43.1046 16 42V22Z" fill="#93C5FD"/>
+  <!-- Tree branches -->
+  <path d="M22 28V38H28" stroke="#1E3A8A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M22 33H27" stroke="#1E3A8A" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- File dot nodes -->
+  <circle cx="32" cy="33" r="2.5" fill="#FFFFFF"/>
+  <circle cx="33" cy="38" r="2.5" fill="#FFFFFF"/>
+</svg>

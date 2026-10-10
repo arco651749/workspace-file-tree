@@ -1,0 +1,657 @@
+const sidecar = window.sidecar;
+const $ = (id) => document.getElementById(id);
+
+let currentWorkspaceUri = null;
+let currentRootPath = '';
+let showHiddenFiles = false;
+let activePreviewFile = null;
+
+// Multi-selection state
+const selectedItems = new Map(); // relPath -> { item, row }
+let lastClickedRow = null;
+
+// File icons map
+const EXT_ICONS = {
+  '.js': '🟨', '.mjs': '🟨', '.cjs': '🟨',
+  '.ts': '🟦', '.tsx': '⚛️', '.jsx': '⚛️',
+  '.py': '🐍',
+  '.json': '⚙️',
+  '.md': '📝', '.txt': '📄',
+  '.html': '🌐', '.htm': '🌐',
+  '.css': '🎨', '.scss': '🎨', '.less': '🎨',
+  '.ps1': '⚡', '.sh': '⚡', '.bat': '⚡',
+  '.png': '🖼️', '.jpg': '🖼️', '.jpeg': '🖼️', '.svg': '🖼️', '.webp': '🖼️',
+  '.pdf': '📕',
+  '.zip': '📦', '.tar': '📦', '.gz': '📦',
+  '.yaml': '🔧', '.yml': '🔧', '.toml': '🔧',
+  '.rs': '🦀', '.go': '🐹', '.java': '☕', '.cpp': '⚙️', '.c': '⚙️',
+  '.sql': '🗄️',
+};
+
+function getFileIcon(ext, isDirectory, isExpanded = false) {
+  if (isDirectory) {
+    return isExpanded ? '📂' : '📁';
+  }
+  return EXT_ICONS[ext] || '📄';
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+let toastTimer;
+function showToast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 3000);
+}
+
+// ---------------------------------------------------------------------------
+// API Calls
+// ---------------------------------------------------------------------------
+async function fetchApi(path, options = {}) {
+  const bodyData = options.body || {};
+  if (currentWorkspaceUri && !bodyData.workspaceUri) {
+    bodyData.workspaceUri = currentWorkspaceUri;
+  }
+  if (currentRootPath && !bodyData.root) {
+    bodyData.root = currentRootPath;
+  }
+
+  if (!sidecar) {
+    const res = await fetch(path, {
+      method: options.method || 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      body: options.method === 'POST' ? JSON.stringify(bodyData) : undefined,
+    });
+    return res.json();
+  }
+
+  const res = await sidecar.fetch(path, {
+    method: options.method || 'GET',
+    body: options.method === 'POST' ? JSON.stringify(bodyData) : undefined,
+  });
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Selection Management
+// ---------------------------------------------------------------------------
+function clearSelection() {
+  selectedItems.forEach(({ row }) => {
+    if (row) row.classList.remove('selected');
+  });
+  selectedItems.clear();
+}
+
+function selectItem(item, row, addToExisting = false) {
+  if (!addToExisting) {
+    clearSelection();
+  }
+  selectedItems.set(item.relPath, { item, row });
+  if (row) row.classList.add('selected');
+  lastClickedRow = row;
+}
+
+function toggleItemSelection(item, row) {
+  if (selectedItems.has(item.relPath)) {
+    selectedItems.delete(item.relPath);
+    if (row) row.classList.remove('selected');
+  } else {
+    selectedItems.set(item.relPath, { item, row });
+    if (row) row.classList.add('selected');
+  }
+  lastClickedRow = row;
+}
+
+function selectRange(targetRow) {
+  const allRows = Array.from(document.querySelectorAll('.tree-node-row'));
+  const startIdx = allRows.indexOf(lastClickedRow);
+  const endIdx = allRows.indexOf(targetRow);
+  if (startIdx === -1 || endIdx === -1) {
+    if (targetRow?.__item) selectItem(targetRow.__item, targetRow, true);
+    return;
+  }
+  const [min, max] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+  for (let i = min; i <= max; i++) {
+    const r = allRows[i];
+    if (r?.__item) {
+      selectedItems.set(r.__item.relPath, { item: r.__item, row: r });
+      r.classList.add('selected');
+    }
+  }
+  lastClickedRow = targetRow;
+}
+
+// ---------------------------------------------------------------------------
+// Tree Rendering
+// ---------------------------------------------------------------------------
+function createTreeNode(item, level = 0) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'tree-node-wrapper';
+  wrapper.dataset.path = item.relPath;
+  wrapper.dataset.name = item.name.toLowerCase();
+
+  const row = document.createElement('div');
+  row.className = 'tree-node-row';
+  row.style.paddingLeft = `${level * 16 + 8}px`;
+  row.__item = item;
+  row.setAttribute('draggable', 'true');
+
+  if (selectedItems.has(item.relPath)) {
+    row.classList.add('selected');
+    selectedItems.set(item.relPath, { item, row });
+  }
+
+  const expander = document.createElement('span');
+  expander.className = 'tree-expander';
+  expander.textContent = item.isDirectory ? '▶' : '';
+
+  const icon = document.createElement('span');
+  icon.className = 'tree-icon';
+  icon.textContent = getFileIcon(item.ext, item.isDirectory, false);
+
+  const label = document.createElement('span');
+  label.className = 'tree-label';
+  label.textContent = item.name;
+
+  row.appendChild(expander);
+  row.appendChild(icon);
+  row.appendChild(label);
+
+  // Actions on hover
+  if (!item.isDirectory) {
+    const actions = document.createElement('div');
+    actions.className = 'tree-actions';
+
+    const btnChat = document.createElement('button');
+    btnChat.innerHTML = '💬';
+    btnChat.title = 'Ask Agent about this file';
+    btnChat.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sendFilePathToAgent(item.relPath);
+    });
+
+    const btnView = document.createElement('button');
+    btnView.innerHTML = '👁️';
+    btnView.title = 'Preview Content';
+    btnView.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPreview(item.relPath);
+    });
+
+    actions.appendChild(btnView);
+    actions.appendChild(btnChat);
+    row.appendChild(actions);
+  }
+
+  const childrenContainer = document.createElement('div');
+  childrenContainer.className = 'tree-children hidden';
+
+  let isLoaded = false;
+  let isExpanded = false;
+
+  async function toggleFolder() {
+    if (!item.isDirectory) {
+      openPreview(item.relPath);
+      return;
+    }
+
+    isExpanded = !isExpanded;
+    expander.classList.toggle('expanded', isExpanded);
+    icon.textContent = getFileIcon(item.ext, true, isExpanded);
+
+    if (isExpanded) {
+      if (!isLoaded) {
+        childrenContainer.innerHTML = '<div class="loading-state" style="padding:4px 16px;">Loading...</div>';
+        childrenContainer.classList.remove('hidden');
+        const data = await fetchApi('/api/tree', {
+          method: 'POST',
+          body: { dir: item.relPath, showHidden: showHiddenFiles },
+        });
+
+        childrenContainer.innerHTML = '';
+        if (data.items && data.items.length > 0) {
+          for (const child of data.items) {
+            childrenContainer.appendChild(createTreeNode(child, level + 1));
+          }
+        } else {
+          const empty = document.createElement('div');
+          empty.className = 'empty-state';
+          empty.style.padding = '4px 24px';
+          empty.textContent = '(Empty folder)';
+          childrenContainer.appendChild(empty);
+        }
+        isLoaded = true;
+      }
+      childrenContainer.classList.remove('hidden');
+    } else {
+      childrenContainer.classList.add('hidden');
+    }
+  }
+
+  // Click & Selection logic
+  row.addEventListener('click', (e) => {
+    if (e.target === expander && item.isDirectory) {
+      toggleFolder();
+      return;
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+      toggleItemSelection(item, row);
+      if (!item.isDirectory && selectedItems.has(item.relPath)) {
+        openPreview(item.relPath);
+      }
+    } else if (e.shiftKey && lastClickedRow) {
+      selectRange(row);
+      if (!item.isDirectory) {
+        openPreview(item.relPath);
+      }
+    } else {
+      // Plain single click
+      if (item.isDirectory) {
+        clearSelection();
+        selectItem(item, row, false);
+        toggleFolder();
+      } else {
+        clearSelection();
+        selectItem(item, row, false);
+        openPreview(item.relPath);
+      }
+    }
+  });
+
+  // Drag and Drop to Chat / Editor
+  row.addEventListener('dragstart', (e) => {
+    if (!selectedItems.has(item.relPath)) {
+      clearSelection();
+      selectItem(item, row, false);
+    }
+
+    const itemsToDrag = Array.from(selectedItems.values()).map(v => v.item);
+
+    // Option A: @relPath
+    const textMentions = itemsToDrag.map(it => {
+      const p = it.relPath.replace(/\\/g, '/');
+      return p.includes(' ') ? `@\"${p}\"` : `@${p}`;
+    }).join(' ');
+
+    // URI list: file:///...
+    const uriList = itemsToDrag.map(it => {
+      const full = it.fullPath || (currentRootPath ? `${currentRootPath}/${it.relPath}` : it.relPath);
+      const normalized = full.replace(/\\/g, '/');
+      const clean = normalized.startsWith('/') ? normalized : `/${normalized}`;
+      return `file://${clean}`;
+    }).join('\r\n');
+
+    e.dataTransfer.setData('text/plain', textMentions);
+    e.dataTransfer.setData('text/uri-list', uriList);
+    e.dataTransfer.effectAllowed = 'copy';
+
+    // Ghost drag image badge
+    const count = itemsToDrag.length;
+    const ghost = document.createElement('div');
+    ghost.className = 'drag-ghost-badge';
+    ghost.innerHTML = count > 1 
+      ? `📦 <b>${count}</b> files` 
+      : `${getFileIcon(item.ext, item.isDirectory)} <b>${item.name}</b>`;
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 12, 12);
+    setTimeout(() => ghost.remove(), 0);
+
+    row.classList.add('dragging');
+  });
+
+  row.addEventListener('dragend', () => {
+    row.classList.remove('dragging');
+  });
+
+  wrapper.appendChild(row);
+  if (item.isDirectory) {
+    wrapper.appendChild(childrenContainer);
+  }
+
+  return wrapper;
+}
+
+async function loadRootTree() {
+  clearSelection();
+  const container = $('tree-container');
+  container.innerHTML = '<div class="loading-state">Scanning workspace directory...</div>';
+
+  try {
+    const data = await fetchApi('/api/tree', {
+      method: 'POST',
+      body: { dir: '', showHidden: showHiddenFiles },
+    });
+
+    if (data.root) {
+      currentRootPath = data.root;
+      $('workspace-name').textContent = data.name || 'Workspace';
+      $('workspace-path').textContent = data.root;
+      $('workspace-info-box').title = `Root: ${data.root}`;
+    }
+
+    if (data.error) {
+      container.innerHTML = `<div class="empty-state" style="color:#f38ba8;">${data.error}</div>`;
+      return;
+    }
+
+    container.innerHTML = '';
+    if (!data.items || data.items.length === 0) {
+      container.innerHTML = '<div class="empty-state">No files found in workspace.</div>';
+      return;
+    }
+
+    for (const item of data.items) {
+      container.appendChild(createTreeNode(item, 0));
+    }
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state" style="color:#f38ba8;">Error loading tree: ${err.message}</div>`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// File Preview (Images & Text) & Agent Action
+// ---------------------------------------------------------------------------
+async function openPreview(relPath) {
+  activePreviewFile = relPath;
+  const drawer = $('preview-drawer');
+  const resizer = $('preview-resizer');
+  const imgContainer = $('preview-image-container');
+  const codeContainer = $('preview-code');
+  const imgEl = $('preview-image');
+  const codeInner = $('preview-code-inner');
+
+  $('preview-title').textContent = relPath;
+  $('preview-size').textContent = 'Loading...';
+  $('preview-icon').textContent = '📄';
+  codeInner.textContent = 'Reading content...';
+
+  // Explicitly reset & hide previous image
+  imgContainer.hidden = true;
+  imgContainer.style.display = 'none';
+  imgEl.src = '';
+  imgEl.onload = null;
+  imgEl.onerror = null;
+
+  // Show code container with loading state
+  codeContainer.hidden = false;
+  codeContainer.style.display = 'block';
+
+  // Open drawer and resizer
+  drawer.hidden = false;
+  if (resizer) resizer.hidden = false;
+
+  try {
+    const data = await fetchApi('/api/file-content', {
+      method: 'POST',
+      body: { path: relPath },
+    });
+
+    // Guard against race conditions if user switched files quickly
+    if (activePreviewFile !== relPath) return;
+
+    if (data.error) {
+      imgContainer.hidden = true;
+      imgContainer.style.display = 'none';
+      imgEl.src = '';
+      codeContainer.hidden = false;
+      codeContainer.style.display = 'block';
+      codeInner.textContent = `Error: ${data.error}`;
+      return;
+    }
+
+    $('preview-size').textContent = formatSize(data.size);
+
+    if (data.isImage && data.dataUrl) {
+      $('preview-icon').textContent = '🖼️';
+      // Hide text container, clear text
+      codeContainer.hidden = true;
+      codeContainer.style.display = 'none';
+      codeInner.textContent = '';
+
+      // Show image container and set image source
+      imgContainer.hidden = false;
+      imgContainer.style.display = 'flex';
+      imgEl.onload = () => {
+        $('preview-size').textContent = `${formatSize(data.size)} · ${imgEl.naturalWidth}×${imgEl.naturalHeight}px`;
+      };
+      imgEl.onerror = () => {
+        $('preview-size').textContent = `${formatSize(data.size)} · (Decode error)`;
+      };
+      imgEl.src = data.dataUrl;
+    } else if (data.isBinary) {
+      $('preview-icon').textContent = '📦';
+      // Hide image container
+      imgContainer.hidden = true;
+      imgContainer.style.display = 'none';
+      imgEl.src = '';
+
+      // Show binary message in code container
+      codeContainer.hidden = false;
+      codeContainer.style.display = 'block';
+      codeInner.textContent = `[Binary file, preview unavailable (${formatSize(data.size)})]`;
+    } else {
+      $('preview-icon').textContent = '📄';
+      // Hide image container
+      imgContainer.hidden = true;
+      imgContainer.style.display = 'none';
+      imgEl.src = '';
+
+      // Show text in code container
+      codeContainer.hidden = false;
+      codeContainer.style.display = 'block';
+      codeInner.textContent = (data.content ?? '') + (data.truncated ? '\n\n[... Truncated due to size limit ...]' : '');
+    }
+  } catch (err) {
+    if (activePreviewFile !== relPath) return;
+    imgContainer.hidden = true;
+    imgContainer.style.display = 'none';
+    imgEl.src = '';
+    codeContainer.hidden = false;
+    codeContainer.style.display = 'block';
+    codeInner.textContent = `Failed to preview: ${err.message}`;
+  }
+}
+
+async function sendFilePathToAgent(relPath) {
+  if (!sidecar || !sidecar.agent) {
+    showToast(`File path copied: ${relPath}`);
+    navigator.clipboard?.writeText(relPath);
+    return;
+  }
+
+  try {
+    const prompt = `Please examine the file: \`${relPath}\``;
+    await sidecar.agent.sendMessage(prompt);
+    showToast(`Sent "${relPath}" to Agent chat!`);
+  } catch (err) {
+    showToast(`Could not send message: ${err.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Search Filter
+// ---------------------------------------------------------------------------
+function handleSearch(filterText) {
+  const query = filterText.trim().toLowerCase();
+  $('btn-clear-search').hidden = !query;
+
+  const nodes = document.querySelectorAll('.tree-node-wrapper');
+  if (!query) {
+    nodes.forEach(n => n.style.display = '');
+    return;
+  }
+
+  nodes.forEach(node => {
+    const name = node.dataset.name || '';
+    const path = (node.dataset.path || '').toLowerCase();
+    const isMatch = name.includes(query) || path.includes(query);
+
+    if (isMatch) {
+      node.style.display = '';
+      let parent = node.parentElement;
+      while (parent && parent.id !== 'tree-container') {
+        if (parent.classList.contains('tree-children')) {
+          parent.classList.remove('hidden');
+          const row = parent.previousElementSibling;
+          if (row) {
+            row.querySelector('.tree-expander')?.classList.add('expanded');
+          }
+        }
+        parent = parent.parentElement;
+      }
+    } else {
+      const hasMatchingChild = node.querySelector(`.tree-node-wrapper[data-name*="${query}"]`);
+      node.style.display = hasMatchingChild ? '' : 'none';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Initialization
+// ---------------------------------------------------------------------------
+async function init() {
+  if (sidecar && typeof sidecar.getWorkspaceUris === 'function') {
+    try {
+      const uris = await sidecar.getWorkspaceUris();
+      if (uris && uris.length > 0) {
+        currentWorkspaceUri = uris[0];
+      }
+    } catch (e) {
+      console.warn('Could not retrieve workspace uris:', e);
+    }
+
+    if (typeof sidecar.onWorkspaceChange === 'function') {
+      sidecar.onWorkspaceChange((newUris) => {
+        if (newUris && newUris.length > 0) {
+          currentWorkspaceUri = newUris[0];
+          showToast('Workspace switched');
+          loadRootTree();
+        }
+      });
+    }
+  }
+
+  $('btn-refresh').addEventListener('click', () => {
+    showToast('Refreshing file tree...');
+    loadRootTree();
+  });
+
+  $('btn-toggle-hidden').addEventListener('click', () => {
+    showHiddenFiles = !showHiddenFiles;
+    $('btn-toggle-hidden').classList.toggle('active', showHiddenFiles);
+    showToast(showHiddenFiles ? 'Showing hidden files' : 'Hiding hidden/ignored files');
+    loadRootTree();
+  });
+
+  const pathBar = $('path-input-bar');
+  $('btn-change-path').addEventListener('click', () => {
+    pathBar.hidden = !pathBar.hidden;
+    if (!pathBar.hidden) {
+      $('manual-path-input').value = currentRootPath || '';
+      $('manual-path-input').focus();
+    }
+  });
+
+  $('btn-cancel-path').addEventListener('click', () => {
+    pathBar.hidden = true;
+  });
+
+  $('btn-apply-path').addEventListener('click', () => {
+    const val = $('manual-path-input').value.trim();
+    if (val) {
+      currentRootPath = val;
+      currentWorkspaceUri = null;
+      pathBar.hidden = true;
+      showToast(`Set root to: ${val}`);
+      loadRootTree();
+    }
+  });
+
+  $('manual-path-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('btn-apply-path').click();
+    if (e.key === 'Escape') $('btn-cancel-path').click();
+  });
+
+  $('search-input').addEventListener('input', (e) => handleSearch(e.target.value));
+  $('btn-clear-search').addEventListener('click', () => {
+    $('search-input').value = '';
+    handleSearch('');
+  });
+
+  function initResizer() {
+    const resizer = $('preview-resizer');
+    const drawer = $('preview-drawer');
+    if (!resizer || !drawer) return;
+
+    let isResizing = false;
+    let startY = 0;
+    let startHeight = 0;
+
+    resizer.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      startY = e.clientY;
+      startHeight = drawer.offsetHeight;
+      resizer.classList.add('resizing');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'row-resize';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const dy = startY - e.clientY;
+      const minH = 100;
+      const maxH = window.innerHeight * 0.85;
+      const newHeight = Math.max(minH, Math.min(maxH, startHeight + dy));
+      drawer.style.height = `${newHeight}px`;
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        resizer.classList.remove('resizing');
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+      }
+    });
+  }
+
+  $('btn-close-preview').addEventListener('click', () => {
+    $('preview-drawer').hidden = true;
+    if ($('preview-resizer')) $('preview-resizer').hidden = true;
+    const imgContainer = $('preview-image-container');
+    const codeContainer = $('preview-code');
+    const imgEl = $('preview-image');
+    if (imgContainer) {
+      imgContainer.hidden = true;
+      imgContainer.style.display = 'none';
+    }
+    if (imgEl) imgEl.src = '';
+    if (codeContainer) codeContainer.hidden = true;
+    $('preview-code-inner').textContent = '';
+    activePreviewFile = null;
+  });
+
+  $('btn-send-agent').addEventListener('click', () => {
+    if (activePreviewFile) {
+      sendFilePathToAgent(activePreviewFile);
+    }
+  });
+
+  $('tree-viewport').addEventListener('click', (e) => {
+    if (e.target === $('tree-viewport') || e.target === $('tree-container')) {
+      clearSelection();
+    }
+  });
+
+  initResizer();
+  loadRootTree();
+}
+
+init();

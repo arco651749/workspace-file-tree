@@ -1,0 +1,12 @@
+{
+  "name": "workspace-file-tree",
+  "displayName": "Workspace File Tree",
+  "description": "Interactive project directory tree and file explorer in the side panel.",
+  "logo": "assets/logo.svg",
+  "version": "1.0.0",
+  "suggestedPrompts": [
+    "Open workspace file tree",
+    "Show project file structure",
+    "Explore current directory files"
+  ]
+}

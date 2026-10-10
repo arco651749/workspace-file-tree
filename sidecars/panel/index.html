@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workspace File Tree</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/preload.js"></script>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="panel-header">
+      <div class="workspace-info" id="workspace-info-box" title="Click to change folder">
+        <span class="folder-badge">📁</span>
+        <div class="workspace-text-group">
+          <span id="workspace-name" class="workspace-title">Loading...</span>
+          <span id="workspace-path" class="workspace-subtitle"></span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-change-path" class="icon-btn" title="Specify Custom Folder Path">📂</button>
+        <button id="btn-refresh" class="icon-btn" title="Refresh Tree">🔄</button>
+        <button id="btn-toggle-hidden" class="icon-btn" title="Toggle Hidden / Ignored Files">👁️</button>
+      </div>
+    </header>
+
+    <!-- Path Input Overlay (Hidden by default) -->
+    <div id="path-input-bar" class="path-input-bar" hidden>
+      <input type="text" id="manual-path-input" placeholder="Enter absolute folder path (e.g. D:\MyProject)..." />
+      <button id="btn-apply-path" class="btn btn-primary">Set</button>
+      <button id="btn-cancel-path" class="icon-btn">✕</button>
+    </div>
+
+    <!-- Filter / Search Bar -->
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="Quick filter by name (e.g. .ts, config)..." autocomplete="off" />
+      <button id="btn-clear-search" class="clear-btn" hidden>×</button>
+    </div>
+
+    <!-- Tree View -->
+    <main class="tree-viewport" id="tree-viewport">
+      <div id="tree-container" class="tree-container">
+        <div class="loading-state">Scanning workspace directory...</div>
+      </div>
+    </main>
+
+    <!-- Resizer Splitter Bar -->
+    <div id="preview-resizer" class="preview-resizer" hidden></div>
+
+    <!-- File Preview Drawer -->
+    <div id="preview-drawer" class="preview-drawer" hidden>
+      <div class="drawer-header">
+        <div class="drawer-title-group">
+          <span id="preview-icon">📄</span>
+          <span id="preview-title" class="drawer-title">File Preview</span>
+          <span id="preview-size" class="drawer-size"></span>
+        </div>
+        <div class="drawer-actions">
+          <button id="btn-send-agent" class="btn btn-primary" title="Send file path to Agent">💬 Ask Agent</button>
+          <button id="btn-close-preview" class="icon-btn">✕</button>
+        </div>
+      </div>
+      <div class="drawer-body">
+        <!-- Image Preview Container -->
+        <div id="preview-image-container" class="preview-image-container" hidden>
+          <img id="preview-image" src="" alt="Image Preview" />
+        </div>
+        <!-- Code / Text Preview Container -->
+        <pre id="preview-code"><code id="preview-code-inner"></code></pre>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast" hidden></div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
