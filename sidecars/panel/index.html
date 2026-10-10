@@ -57,17 +57,13 @@
           <span id="preview-size" class="drawer-size"></span>
         </div>
         <div class="drawer-actions">
+          <div id="preview-custom-actions" class="preview-custom-actions"></div>
           <button id="btn-send-agent" class="btn btn-primary" title="Send file path to Agent">💬 Ask Agent</button>
           <button id="btn-close-preview" class="icon-btn">✕</button>
         </div>
       </div>
-      <div class="drawer-body">
-        <!-- Image Preview Container -->
-        <div id="preview-image-container" class="preview-image-container" hidden>
-          <img id="preview-image" src="" alt="Image Preview" />
-        </div>
-        <!-- Code / Text Preview Container -->
-        <pre id="preview-code"><code id="preview-code-inner"></code></pre>
+      <div class="drawer-body" id="preview-body">
+        <!-- Preview strategies dynamically mount here -->
       </div>
     </div>
 
@@ -75,6 +71,7 @@
     <div id="toast" class="toast" hidden></div>
   </div>
 
+  <script src="/previewers.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -356,34 +356,21 @@ async function loadRootTree() {
 }
 
 // ---------------------------------------------------------------------------
-// File Preview (Images & Text) & Agent Action
+// File Preview (Strategy Pattern Dispatcher) & Agent Action
 // ---------------------------------------------------------------------------
 async function openPreview(relPath) {
   activePreviewFile = relPath;
   const drawer = $('preview-drawer');
   const resizer = $('preview-resizer');
-  const imgContainer = $('preview-image-container');
-  const codeContainer = $('preview-code');
-  const imgEl = $('preview-image');
-  const codeInner = $('preview-code-inner');
+  const body = $('preview-body');
+  const customActions = $('preview-custom-actions');
 
   $('preview-title').textContent = relPath;
   $('preview-size').textContent = 'Loading...';
   $('preview-icon').textContent = '📄';
-  codeInner.textContent = 'Reading content...';
+  if (customActions) customActions.innerHTML = '';
 
-  // Explicitly reset & hide previous image
-  imgContainer.hidden = true;
-  imgContainer.style.display = 'none';
-  imgEl.src = '';
-  imgEl.onload = null;
-  imgEl.onerror = null;
-
-  // Show code container with loading state
-  codeContainer.hidden = false;
-  codeContainer.style.display = 'block';
-
-  // Open drawer and resizer
+  body.innerHTML = '<div class="loading-state" style="padding:16px;">Reading content...</div>';
   drawer.hidden = false;
   if (resizer) resizer.hidden = false;
 
@@ -393,69 +380,37 @@ async function openPreview(relPath) {
       body: { path: relPath },
     });
 
-    // Guard against race conditions if user switched files quickly
     if (activePreviewFile !== relPath) return;
 
     if (data.error) {
-      imgContainer.hidden = true;
-      imgContainer.style.display = 'none';
-      imgEl.src = '';
-      codeContainer.hidden = false;
-      codeContainer.style.display = 'block';
-      codeInner.textContent = `Error: ${data.error}`;
+      $('preview-size').textContent = '';
+      body.innerHTML = `<div class="empty-state" style="color:#f38ba8;">Error: ${data.error}</div>`;
       return;
     }
 
     $('preview-size').textContent = formatSize(data.size);
 
-    if (data.isImage && data.dataUrl) {
-      $('preview-icon').textContent = '🖼️';
-      // Hide text container, clear text
-      codeContainer.hidden = true;
-      codeContainer.style.display = 'none';
-      codeInner.textContent = '';
+    const context = {
+      formatSize,
+      getFileIcon,
+      setSizeText: (txt) => { $('preview-size').textContent = txt; },
+      setIcon: (ico) => { $('preview-icon').textContent = ico; },
+      actionsHost: customActions,
+      reRender: () => {
+        if (window.previewManager && activePreviewFile === relPath) {
+          window.previewManager.render(body, data, context);
+        }
+      }
+    };
 
-      // Show image container and set image source
-      imgContainer.hidden = false;
-      imgContainer.style.display = 'flex';
-      imgEl.onload = () => {
-        $('preview-size').textContent = `${formatSize(data.size)} · ${imgEl.naturalWidth}×${imgEl.naturalHeight}px`;
-      };
-      imgEl.onerror = () => {
-        $('preview-size').textContent = `${formatSize(data.size)} · (Decode error)`;
-      };
-      imgEl.src = data.dataUrl;
-    } else if (data.isBinary) {
-      $('preview-icon').textContent = '📦';
-      // Hide image container
-      imgContainer.hidden = true;
-      imgContainer.style.display = 'none';
-      imgEl.src = '';
-
-      // Show binary message in code container
-      codeContainer.hidden = false;
-      codeContainer.style.display = 'block';
-      codeInner.textContent = `[Binary file, preview unavailable (${formatSize(data.size)})]`;
+    if (window.previewManager) {
+      await window.previewManager.render(body, data, context);
     } else {
-      $('preview-icon').textContent = '📄';
-      // Hide image container
-      imgContainer.hidden = true;
-      imgContainer.style.display = 'none';
-      imgEl.src = '';
-
-      // Show text in code container
-      codeContainer.hidden = false;
-      codeContainer.style.display = 'block';
-      codeInner.textContent = (data.content ?? '') + (data.truncated ? '\n\n[... Truncated due to size limit ...]' : '');
+      body.innerHTML = `<pre class="preview-code-block"><code>${data.content || ''}</code></pre>`;
     }
   } catch (err) {
     if (activePreviewFile !== relPath) return;
-    imgContainer.hidden = true;
-    imgContainer.style.display = 'none';
-    imgEl.src = '';
-    codeContainer.hidden = false;
-    codeContainer.style.display = 'block';
-    codeInner.textContent = `Failed to preview: ${err.message}`;
+    body.innerHTML = `<div class="empty-state" style="color:#f38ba8;">Failed to preview: ${err.message}</div>`;
   }
 }
 
@@ -625,16 +580,11 @@ async function init() {
   $('btn-close-preview').addEventListener('click', () => {
     $('preview-drawer').hidden = true;
     if ($('preview-resizer')) $('preview-resizer').hidden = true;
-    const imgContainer = $('preview-image-container');
-    const codeContainer = $('preview-code');
-    const imgEl = $('preview-image');
-    if (imgContainer) {
-      imgContainer.hidden = true;
-      imgContainer.style.display = 'none';
-    }
-    if (imgEl) imgEl.src = '';
-    if (codeContainer) codeContainer.hidden = true;
-    $('preview-code-inner').textContent = '';
+    if (window.previewManager) window.previewManager.destroy();
+    const body = $('preview-body');
+    if (body) body.innerHTML = '';
+    const customActions = $('preview-custom-actions');
+    if (customActions) customActions.innerHTML = '';
     activePreviewFile = null;
   });
 

@@ -49,6 +49,7 @@ const readLocal = (name) => readFileSync(join(HERE, name), 'utf8');
 // ---------------------------------------------------------------------------
 app.page('/', () => readLocal('index.html'));
 app.page('/app.js', () => readLocal('app.js'));
+app.page('/previewers.js', () => readLocal('previewers.js'));
 app.api('/styles.css', () => new Response(readLocal('styles.css'), { contentType: 'text/css' }), 'GET');
 
 // ---------------------------------------------------------------------------
@@ -192,6 +193,7 @@ app.api('/api/file-content', (data) => {
       const buffer = readFileSync(fullPath);
       const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
       return {
+        ext,
         isImage: true,
         dataUrl,
         size: st.size,
@@ -207,6 +209,7 @@ app.api('/api/file-content', (data) => {
 
     if (isBinary) {
       return {
+        ext,
         isImage: false,
         isBinary: true,
         size: st.size,
@@ -219,6 +222,7 @@ app.api('/api/file-content', (data) => {
     const truncated = buffer.length > maxBytes;
 
     return {
+      ext,
       isImage: false,
       isBinary: false,
       truncated,

@@ -469,6 +469,12 @@ body {
   border-radius: 4px;
 }
 
+.preview-custom-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .btn {
   border-radius: 6px;
   padding: 3px 8px;
@@ -485,6 +491,206 @@ body {
 
 .btn-primary:hover {
   background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+
+/* Code Preview Block */
+.preview-code-block {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-primary);
+  margin: 0;
+  padding: 4px;
+}
+
+/* Markdown Rendered Preview */
+.preview-markdown-rendered {
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.preview-markdown-rendered .md-h1 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 10px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.preview-markdown-rendered .md-h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 14px 0 8px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.preview-markdown-rendered .md-h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin: 12px 0 6px 0;
+}
+
+.preview-markdown-rendered .md-h4 {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 10px 0 4px 0;
+}
+
+.preview-markdown-rendered .md-p {
+  margin: 0 0 8px 0;
+}
+
+.preview-markdown-rendered .md-quote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--accent-blue);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  border-radius: 0 4px 4px 0;
+}
+
+.preview-markdown-rendered .md-list, .preview-markdown-rendered .md-ol {
+  margin: 0 0 8px 0;
+  padding-left: 20px;
+}
+
+.preview-markdown-rendered li {
+  margin-bottom: 3px;
+}
+
+.preview-markdown-rendered .md-inline-code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 5px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  color: var(--accent-blue);
+}
+
+.preview-markdown-rendered .md-code-block {
+  margin: 10px 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.preview-markdown-rendered .md-code-lang {
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border-color);
+  text-transform: uppercase;
+}
+
+.preview-markdown-rendered .md-code-block pre {
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.preview-markdown-rendered .md-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 12px;
+}
+
+.preview-markdown-rendered .md-table th, .preview-markdown-rendered .md-table td {
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.preview-markdown-rendered .md-table th {
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+
+.preview-markdown-rendered .md-hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 14px 0;
+}
+
+.preview-markdown-rendered .md-link {
+  color: var(--accent-blue);
+  text-decoration: underline;
+}
+
+/* HTML Web Preview Frame */
+.preview-html-container {
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  display: flex;
+}
+
+.preview-html-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+  border-radius: 4px;
+}
+
+/* Fallback Card for Unsupported Files (PDF, Office, etc.) */
+.preview-fallback-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+  text-align: center;
+  height: 100%;
+}
+
+.fallback-icon {
+  font-size: 38px;
+  margin-bottom: 8px;
+}
+
+.fallback-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.fallback-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.fallback-desc {
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  max-width: 320px;
 }
 
 /* Toast */
