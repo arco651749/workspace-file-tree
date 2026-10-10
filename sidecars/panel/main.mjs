@@ -385,4 +385,55 @@ app.api('/api/save-annotated-image', (data) => {
   }
 });
 
+// 6. Copy annotated image natively to Windows OS clipboard
+app.api('/api/copy-image-to-clipboard', async (data) => {
+  const root = resolveRoot(data);
+  if (!data?.base64) return { error: 'No image data provided' };
+
+  try {
+    const rawData = data.base64.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(rawData, 'base64');
+
+    const outDir = join(root, '.gemini', 'annotated');
+    if (!existsSync(outDir)) {
+      mkdirSync(outDir, { recursive: true });
+    }
+
+    const timestamp = Date.now();
+    const origBase = data.originalPath ? basename(data.originalPath, extname(data.originalPath)) : 'image';
+    const fileName = `annotated_${origBase}_${timestamp}.png`;
+    const fullPath = join(outDir, fileName);
+
+    writeFileSync(fullPath, buffer);
+
+    // Set Windows OS system clipboard directly via PowerShell
+    const normalizedPath = fullPath.replace(/\\/g, '\\\\');
+    const psScript = `Add-Type -AssemblyName System.Windows.Forms; $img = [System.Drawing.Image]::FromFile('${normalizedPath}'); [System.Windows.Forms.Clipboard]::SetImage($img); $img.Dispose()`;
+    await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript]);
+
+    return {
+      success: true,
+      ok: true,
+      fullPath,
+      relPath: relative(root, fullPath),
+      name: fileName,
+    };
+  } catch (err) {
+    return { error: String(err.message || err) };
+  }
+});
+
+// 7. Copy text snippet natively to Windows OS clipboard
+app.api('/api/copy-text-to-clipboard', async (data) => {
+  if (!data?.text) return { error: 'No text provided' };
+  try {
+    const encoded = Buffer.from(data.text, 'utf8').toString('base64');
+    const psScript = `[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encoded}')) | Set-Clipboard`;
+    await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript]);
+    return { success: true, ok: true };
+  } catch (err) {
+    return { error: String(err.message || err) };
+  }
+});
+
 app.run();

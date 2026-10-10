@@ -553,34 +553,49 @@ class ImagePreviewStrategy {
         mergedCtx.drawImage(this.canvasEl, 0, 0, naturalW, naturalH);
       }
 
-      // Modern Chromium / Electron: Pass Promise directly into ClipboardItem to keep user gesture activation
-      if (navigator.clipboard && window.ClipboardItem) {
-        const blobPromise = new Promise((resolve, reject) => {
-          mergedCanvas.toBlob(blob => {
-            if (blob) resolve(blob);
-            else reject(new Error('Canvas toBlob failed'));
-          }, 'image/png');
-        });
-        const item = new ClipboardItem({ 'image/png': blobPromise });
-        await navigator.clipboard.write([item]);
+      const base64 = mergedCanvas.toDataURL('image/png');
+      let copied = false;
+
+      // 1. Primary: Use Sidecar native Windows OS Clipboard API
+      // (Completely bypasses iframe Permissions Policy restriction crbug 414348233)
+      if (window.sidecar && window.sidecar.fetch) {
+        try {
+          const res = await window.sidecar.fetch('/api/copy-image-to-clipboard', {
+            method: 'POST',
+            body: JSON.stringify({
+              base64,
+              originalPath: this.fileData?.path,
+            })
+          });
+          const data = await res.json();
+          if (data && (data.ok || data.success)) {
+            copied = true;
+          }
+        } catch (err) {
+          console.warn('Sidecar native clipboard error:', err);
+        }
+      }
+
+      // 2. Fallback: Browser Clipboard API if allowed
+      if (!copied && navigator.clipboard && window.ClipboardItem) {
+        try {
+          const blobPromise = new Promise((resolve, reject) => {
+            mergedCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Canvas toBlob failed')), 'image/png');
+          });
+          const item = new ClipboardItem({ 'image/png': blobPromise });
+          await navigator.clipboard.write([item]);
+          copied = true;
+        } catch (browserErr) {
+          console.warn('Browser clipboard.write also failed:', browserErr);
+        }
+      }
+
+      if (copied) {
+        if (typeof showToast === 'function') {
+          showToast('📋 標註圖片已複製到系統剪貼簿！請在對話輸入框按 Ctrl+V 貼上');
+        }
       } else {
-        throw new Error('瀏覽器環境不支援直接寫入圖片至剪貼簿');
-      }
-
-      // Save to disk in background quietly for file persistence
-      if (window.sidecar && window.sidecar.fetch && this.fileData?.path) {
-        const base64 = mergedCanvas.toDataURL('image/png');
-        window.sidecar.fetch('/api/save-annotated-image', {
-          method: 'POST',
-          body: JSON.stringify({
-            base64,
-            originalPath: this.fileData.path,
-          })
-        }).catch(err => console.warn('Background save error:', err));
-      }
-
-      if (typeof showToast === 'function') {
-        showToast('📋 標註圖片已複製！請點選下方對話輸入框按 Ctrl+V 貼上');
+        throw new Error('無法寫入系統剪貼簿，請確認系統權限');
       }
     } catch (err) {
       console.error('Failed to copy annotated image:', err);

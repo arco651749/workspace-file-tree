@@ -423,11 +423,49 @@ function formatQuotedSnippet(relPath, selectedText) {
 
 async function copySelectionToClipboard(relPath, selectedText) {
   const prompt = formatQuotedSnippet(relPath, selectedText);
+  let copied = false;
+
+  // 1. Try modern navigator.clipboard
   try {
-    await navigator.clipboard.writeText(prompt);
-    showToast('📋 已複製引用文字！請在下方對話輸入框按 Ctrl+V 貼上');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(prompt);
+      copied = true;
+    }
   } catch (err) {
-    showToast(`複製失敗: ${err.message}`);
+    console.warn('navigator.clipboard.writeText failed:', err);
+  }
+
+  // 2. Try classic document.execCommand('copy')
+  if (!copied) {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = prompt;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      copied = document.execCommand('copy');
+      document.body.removeChild(textarea);
+    } catch (_) {}
+  }
+
+  // 3. Fallback to Sidecar native OS clipboard
+  if (!copied && window.sidecar && window.sidecar.fetch) {
+    try {
+      const res = await window.sidecar.fetch('/api/copy-text-to-clipboard', {
+        method: 'POST',
+        body: JSON.stringify({ text: prompt })
+      });
+      const data = await res.json();
+      if (data && (data.ok || data.success)) copied = true;
+    } catch (_) {}
+  }
+
+  if (copied) {
+    showToast('📋 已複製引用文字！請在下方對話輸入框按 Ctrl+V 貼上');
+  } else {
+    showToast('複製失敗: 無法存取剪貼簿');
   }
 }
 
