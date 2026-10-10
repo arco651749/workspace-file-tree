@@ -416,24 +416,38 @@ async function openPreview(relPath) {
 
 let currentSelectedText = '';
 
-async function sendSelectionToAgent(relPath, selectedText) {
+function formatQuotedSnippet(relPath, selectedText) {
   const ext = (relPath.split('.').pop() || 'text').toLowerCase();
-  const prompt = `Regarding \`${relPath}\`:\n\`\`\`${ext}\n${selectedText}\n\`\`\`\n`;
+  return `Regarding \`${relPath}\`:\n\`\`\`${ext}\n${selectedText}\n\`\`\`\n`;
+}
+
+async function copySelectionToClipboard(relPath, selectedText) {
+  const prompt = formatQuotedSnippet(relPath, selectedText);
+  try {
+    await navigator.clipboard.writeText(prompt);
+    showToast('📋 已複製引用文字！請在下方對話輸入框按 Ctrl+V 貼上');
+  } catch (err) {
+    showToast(`複製失敗: ${err.message}`);
+  }
+}
+
+async function sendSelectionToAgent(relPath, selectedText) {
+  const prompt = formatQuotedSnippet(relPath, selectedText);
 
   try {
     await navigator.clipboard.writeText(prompt);
   } catch (_) {}
 
   if (!sidecar || !sidecar.agent) {
-    showToast(`Quoted snippet copied to clipboard!`);
+    showToast('📋 引用內容已複製到剪貼簿（可直接在輸入框 Ctrl+V 貼上）！');
     return;
   }
 
   try {
     await sidecar.agent.sendMessage(prompt);
-    showToast(`Quoted selection to Agent chat!`);
+    showToast('💬 已將引用文字送出至 Agent！');
   } catch (err) {
-    showToast(`Quoted snippet copied! (Agent: ${err.message})`);
+    showToast(`發送失敗: ${err.message}`);
   }
 }
 
@@ -456,8 +470,9 @@ async function sendFilePathToAgent(relPath) {
 function setupTextSelectionQuote() {
   const previewBody = $('preview-body');
   const bubble = $('selection-quote-bubble');
-  const btnQuote = $('btn-quote-selection');
-  if (!previewBody || !bubble || !btnQuote) return;
+  const btnQuoteCopy = $('btn-quote-copy');
+  const btnQuoteSend = $('btn-quote-send');
+  if (!previewBody || !bubble) return;
 
   function updateSelection() {
     const sel = window.getSelection();
@@ -485,8 +500,8 @@ function setupTextSelectionQuote() {
 
     currentSelectedText = text;
     if ($('btn-send-agent')) {
-      $('btn-send-agent').textContent = '💬 Quote Text';
-      $('btn-send-agent').title = `Quote selected ${text.length} characters to Agent`;
+      $('btn-send-agent').textContent = '📋 Quote Text';
+      $('btn-send-agent').title = `Quote selected ${text.length} characters (Ctrl+V ready)`;
     }
 
     try {
@@ -495,11 +510,11 @@ function setupTextSelectionQuote() {
       const drawer = $('preview-drawer');
       const drawerRect = drawer.getBoundingClientRect();
 
-      const bubbleWidth = 190;
+      const bubbleWidth = bubble.offsetWidth || 240;
       let left = rect.left - drawerRect.left + (rect.width / 2) - (bubbleWidth / 2);
       left = Math.max(10, Math.min(drawerRect.width - bubbleWidth - 10, left));
-      let top = rect.top - drawerRect.top - 36;
-      if (top < 40) top = rect.bottom - drawerRect.top + 6;
+      let top = rect.top - drawerRect.top - 42;
+      if (top < 40) top = rect.bottom - drawerRect.top + 8;
 
       bubble.style.left = `${left}px`;
       bubble.style.top = `${top}px`;
@@ -517,7 +532,24 @@ function setupTextSelectionQuote() {
     setTimeout(updateSelection, 15);
   });
 
-  btnQuote.addEventListener('click', async (e) => {
+  // Action 1: Copy quote snippet (Ctrl+V) without auto-sending
+  btnQuoteCopy?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (currentSelectedText && activePreviewFile) {
+      const textToQuote = currentSelectedText;
+      const fileToQuote = activePreviewFile;
+      bubble.hidden = true;
+      currentSelectedText = '';
+      window.getSelection()?.removeAllRanges();
+      if ($('btn-send-agent')) {
+        $('btn-send-agent').textContent = '💬 Ask Agent';
+      }
+      await copySelectionToClipboard(fileToQuote, textToQuote);
+    }
+  });
+
+  // Action 2: Direct send to Agent
+  btnQuoteSend?.addEventListener('click', async (e) => {
     e.stopPropagation();
     if (currentSelectedText && activePreviewFile) {
       const textToQuote = currentSelectedText;

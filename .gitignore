@@ -14,3 +14,6 @@ logs/
 # Temporary files
 *.tmp
 *.bak
+.gemini/
+node_modules/
+
