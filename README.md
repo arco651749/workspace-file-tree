@@ -1,6 +1,6 @@
-# Workspace File Tree for Google Antigravity
+# Workspace File Tree for ANTIGRAVITY (2.22.0 以上)
 
-An interactive, feature-rich Project File Tree Sidebar extension for the **Google Antigravity** IDE.
+An interactive, feature-rich Project File Tree Sidebar extension for **ANTIGRAVITY 2.22.0 以上**.
 
 ![Antigravity UI Extension](assets/logo.svg)
 
