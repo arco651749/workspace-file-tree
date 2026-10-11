@@ -528,7 +528,7 @@ function setupTextSelectionQuote() {
       currentSelectedText = '';
       bubble.hidden = true;
       if ($('btn-send-agent')) {
-        $('btn-send-agent').textContent = '💬 Ask Agent';
+        $('btn-send-agent').textContent = '💬 Ask';
         $('btn-send-agent').title = 'Send file path to Agent';
       }
       return;
@@ -540,7 +540,7 @@ function setupTextSelectionQuote() {
       currentSelectedText = '';
       bubble.hidden = true;
       if ($('btn-send-agent')) {
-        $('btn-send-agent').textContent = '💬 Ask Agent';
+        $('btn-send-agent').textContent = '💬 Ask';
         $('btn-send-agent').title = 'Send file path to Agent';
       }
       return;
@@ -590,7 +590,7 @@ function setupTextSelectionQuote() {
       currentSelectedText = '';
       window.getSelection()?.removeAllRanges();
       if ($('btn-send-agent')) {
-        $('btn-send-agent').textContent = '💬 Ask Agent';
+        $('btn-send-agent').textContent = '💬 Ask';
       }
       await copySelectionToClipboard(fileToQuote, textToQuote);
     }
@@ -612,7 +612,7 @@ function setupTextSelectionQuote() {
             currentSelectedText = '';
             window.getSelection()?.removeAllRanges();
             if ($('btn-send-agent')) {
-              $('btn-send-agent').textContent = '💬 Ask Agent';
+              $('btn-send-agent').textContent = '💬 Ask';
             }
             await sendSelectionToAgent(fileToQuote, textToQuote, customMessage);
           }
@@ -621,7 +621,7 @@ function setupTextSelectionQuote() {
         currentSelectedText = '';
         window.getSelection()?.removeAllRanges();
         if ($('btn-send-agent')) {
-          $('btn-send-agent').textContent = '💬 Ask Agent';
+          $('btn-send-agent').textContent = '💬 Ask';
         }
         sendSelectionToAgent(fileToQuote, textToQuote);
       }
@@ -809,7 +809,7 @@ async function init() {
           if (bubble) bubble.hidden = true;
           currentSelectedText = '';
           window.getSelection()?.removeAllRanges();
-          $('btn-send-agent').textContent = '💬 Ask Agent';
+          $('btn-send-agent').textContent = '💬 Ask';
 
           if (isQuoting) {
             await sendSelectionToAgent(fileToQuote, textToQuote, customMessage);
@@ -824,7 +824,7 @@ async function init() {
         if (bubble) bubble.hidden = true;
         currentSelectedText = '';
         window.getSelection()?.removeAllRanges();
-        $('btn-send-agent').textContent = '💬 Ask Agent';
+        $('btn-send-agent').textContent = '💬 Ask';
         sendSelectionToAgent(fileToQuote, textToQuote);
       } else {
         sendFilePathToAgent(fileToQuote);

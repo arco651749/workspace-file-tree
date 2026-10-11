@@ -457,8 +457,8 @@ class ImagePreviewStrategy {
       <div class="annot-action-group">
         <button class="annot-action-btn" id="btn-annot-undo" title="復原上一筆">↩️ 復原</button>
         <button class="annot-action-btn" id="btn-annot-clear" title="清空所有標註">🗑️ 清空</button>
-        <button class="annot-action-btn btn-primary" id="btn-annot-copy" title="複製標註圖片到剪貼簿，可直接在輸入框按 Ctrl+V 貼上">📋 Ctrl + C, V</button>
-        <button class="annot-action-btn" id="btn-annot-send" title="向 Agent 提問 (包含標註圖片)">💬 Ask Agent</button>
+        <button class="annot-action-btn" id="btn-annot-copy" title="複製標註圖片到剪貼簿，可直接在輸入框按 Ctrl+V 貼上">📋 Ctrl + C, V</button>
+        <button class="btn btn-primary" id="btn-annot-send" title="向 Agent 提問 (包含標註圖片)">💬 Ask</button>
       </div>
     `;
 
@@ -788,7 +788,7 @@ class ImagePreviewStrategy {
     } finally {
       if (sendBtn) {
         sendBtn.disabled = false;
-        sendBtn.textContent = '💬 Ask Agent';
+        sendBtn.textContent = '💬 Ask';
       }
     }
   }
