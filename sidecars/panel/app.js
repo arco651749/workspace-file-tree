@@ -469,8 +469,11 @@ async function copySelectionToClipboard(relPath, selectedText) {
   }
 }
 
-async function sendSelectionToAgent(relPath, selectedText) {
-  const prompt = formatQuotedSnippet(relPath, selectedText);
+async function sendSelectionToAgent(relPath, selectedText, customMessage = '') {
+  let prompt = formatQuotedSnippet(relPath, selectedText);
+  if (customMessage) {
+    prompt += `\n**使用者說明 / 提問**：\n${customMessage}\n`;
+  }
 
   try {
     await navigator.clipboard.writeText(prompt);
@@ -483,23 +486,30 @@ async function sendSelectionToAgent(relPath, selectedText) {
 
   try {
     await sidecar.agent.sendMessage(prompt);
-    showToast('💬 已將引用文字送出至 Agent！');
+    showToast(customMessage ? '💬 已將引用文字與提問送出至 Agent！' : '💬 已將引用文字送出至 Agent！');
   } catch (err) {
     showToast(`發送失敗: ${err.message}`);
   }
 }
 
-async function sendFilePathToAgent(relPath) {
+async function sendFilePathToAgent(relPath, customMessage = '') {
+  let prompt = `Please examine the file: \`${relPath}\``;
+  if (customMessage) {
+    prompt += `\n\n**使用者說明 / 提問**：\n${customMessage}\n`;
+  }
+
+  try {
+    await navigator.clipboard.writeText(prompt);
+  } catch (_) {}
+
   if (!sidecar || !sidecar.agent) {
     showToast(`File path copied: ${relPath}`);
-    navigator.clipboard?.writeText(relPath);
     return;
   }
 
   try {
-    const prompt = `Please examine the file: \`${relPath}\``;
     await sidecar.agent.sendMessage(prompt);
-    showToast(`Sent "${relPath}" to Agent chat!`);
+    showToast(customMessage ? `💬 已將檔案與提問送出至 Agent！` : `Sent "${relPath}" to Agent chat!`);
   } catch (err) {
     showToast(`Could not send message: ${err.message}`);
   }
@@ -586,19 +596,35 @@ function setupTextSelectionQuote() {
     }
   });
 
-  // Action 2: Direct send to Agent
-  btnQuoteSend?.addEventListener('click', async (e) => {
+  // Action 2: Direct send to Agent (with prompt input popover)
+  btnQuoteSend?.addEventListener('click', (e) => {
     e.stopPropagation();
     if (currentSelectedText && activePreviewFile) {
       const textToQuote = currentSelectedText;
       const fileToQuote = activePreviewFile;
       bubble.hidden = true;
-      currentSelectedText = '';
-      window.getSelection()?.removeAllRanges();
-      if ($('btn-send-agent')) {
-        $('btn-send-agent').textContent = '💬 Ask Agent';
+
+      if (typeof window.openAskAgentPopover === 'function') {
+        window.openAskAgentPopover({
+          title: '💬 提問 Agent (選取文字引用)',
+          placeholder: '請輸入想對此段文字/程式碼提出的問題（按 Enter 直接發送）...',
+          onSubmit: async (customMessage) => {
+            currentSelectedText = '';
+            window.getSelection()?.removeAllRanges();
+            if ($('btn-send-agent')) {
+              $('btn-send-agent').textContent = '💬 Ask Agent';
+            }
+            await sendSelectionToAgent(fileToQuote, textToQuote, customMessage);
+          }
+        });
+      } else {
+        currentSelectedText = '';
+        window.getSelection()?.removeAllRanges();
+        if ($('btn-send-agent')) {
+          $('btn-send-agent').textContent = '💬 Ask Agent';
+        }
+        sendSelectionToAgent(fileToQuote, textToQuote);
       }
-      await sendSelectionToAgent(fileToQuote, textToQuote);
     }
   });
 }
@@ -764,19 +790,44 @@ async function init() {
     activePreviewFile = null;
   });
 
-  $('btn-send-agent').addEventListener('click', async () => {
-    if (activePreviewFile) {
-      if (currentSelectedText) {
-        const textToQuote = currentSelectedText;
-        const fileToQuote = activePreviewFile;
+  $('btn-send-agent').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!activePreviewFile) return;
+
+    const textToQuote = currentSelectedText;
+    const fileToQuote = activePreviewFile;
+    const isQuoting = Boolean(textToQuote);
+
+    if (typeof window.openAskAgentPopover === 'function') {
+      window.openAskAgentPopover({
+        title: isQuoting ? '💬 提問 Agent (選取文字引用)' : '💬 提問 Agent',
+        placeholder: isQuoting
+          ? '請輸入想對此段文字/程式碼提出的問題（按 Enter 直接發送，Shift+Enter 換行）...'
+          : '請輸入想對此檔案提出的問題（按 Enter 直接發送，Shift+Enter 換行）...',
+        onSubmit: async (customMessage) => {
+          const bubble = $('selection-quote-bubble');
+          if (bubble) bubble.hidden = true;
+          currentSelectedText = '';
+          window.getSelection()?.removeAllRanges();
+          $('btn-send-agent').textContent = '💬 Ask Agent';
+
+          if (isQuoting) {
+            await sendSelectionToAgent(fileToQuote, textToQuote, customMessage);
+          } else {
+            await sendFilePathToAgent(fileToQuote, customMessage);
+          }
+        }
+      });
+    } else {
+      if (isQuoting) {
         const bubble = $('selection-quote-bubble');
         if (bubble) bubble.hidden = true;
         currentSelectedText = '';
         window.getSelection()?.removeAllRanges();
         $('btn-send-agent').textContent = '💬 Ask Agent';
-        await sendSelectionToAgent(fileToQuote, textToQuote);
+        sendSelectionToAgent(fileToQuote, textToQuote);
       } else {
-        sendFilePathToAgent(activePreviewFile);
+        sendFilePathToAgent(fileToQuote);
       }
     }
   });

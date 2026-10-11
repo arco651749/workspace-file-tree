@@ -273,6 +273,104 @@ function drawArrow(ctx, fromX, fromY, toX, toY, color, width) {
   ctx.restore();
 }
 
+window.openAskAgentPopover = function({
+  title = '💬 附帶訊息提問 Agent',
+  placeholder = '請輸入想對 AI Agent 說的話（按 Enter 直接發送，Shift+Enter 換行）...',
+  hint = 'Enter 發送 · Esc 取消',
+  initialValue = '',
+  onSubmit,
+  onCancel
+} = {}) {
+  const popover = document.getElementById('annot-send-popover');
+  const input = document.getElementById('annot-prompt-input');
+  if (!popover || !input) {
+    if (typeof onSubmit === 'function') onSubmit('');
+    return;
+  }
+
+  // Toggle if already visible
+  if (!popover.hidden) {
+    popover.hidden = true;
+    if (window._askAgentPopoverCleanup) {
+      window._askAgentPopoverCleanup();
+      window._askAgentPopoverCleanup = null;
+    }
+    return;
+  }
+
+  if (window._askAgentPopoverCleanup) {
+    window._askAgentPopoverCleanup();
+    window._askAgentPopoverCleanup = null;
+  }
+
+  const titleEl = popover.querySelector('.popover-title');
+  if (titleEl) titleEl.textContent = title;
+  const hintEl = popover.querySelector('.popover-hint');
+  if (hintEl) hintEl.textContent = hint;
+
+  input.placeholder = placeholder;
+  input.value = initialValue;
+  popover.hidden = false;
+  setTimeout(() => input.focus(), 25);
+
+  const btnSubmit = document.getElementById('btn-popover-submit');
+  const btnCancel = document.getElementById('btn-popover-cancel');
+  const btnClose = document.getElementById('btn-popover-close');
+
+  const cleanup = () => {
+    btnSubmit?.removeEventListener('click', handleSubmit);
+    btnCancel?.removeEventListener('click', handleClose);
+    btnClose?.removeEventListener('click', handleClose);
+    input.removeEventListener('keydown', handleKeyDown);
+    document.removeEventListener('click', handleOutsideClick);
+    window._askAgentPopoverCleanup = null;
+  };
+
+  window._askAgentPopoverCleanup = cleanup;
+
+  const handleClose = (e) => {
+    if (e) e.preventDefault();
+    popover.hidden = true;
+    cleanup();
+    if (typeof onCancel === 'function') onCancel();
+  };
+
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    const customMessage = input.value.trim();
+    popover.hidden = true;
+    cleanup();
+    if (typeof onSubmit === 'function') {
+      await onSubmit(customMessage);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleClose();
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  const handleOutsideClick = (e) => {
+    if (!popover.contains(e.target)) {
+      handleClose();
+    }
+  };
+
+  btnSubmit?.addEventListener('click', handleSubmit);
+  btnCancel?.addEventListener('click', handleClose);
+  btnClose?.addEventListener('click', handleClose);
+  input.addEventListener('keydown', handleKeyDown);
+
+  setTimeout(() => {
+    document.addEventListener('click', handleOutsideClick);
+  }, 60);
+};
+
 class ImagePreviewStrategy {
   constructor() {
     this.id = 'image';
@@ -359,8 +457,8 @@ class ImagePreviewStrategy {
       <div class="annot-action-group">
         <button class="annot-action-btn" id="btn-annot-undo" title="復原上一筆">↩️ 復原</button>
         <button class="annot-action-btn" id="btn-annot-clear" title="清空所有標註">🗑️ 清空</button>
-        <button class="annot-action-btn btn-primary" id="btn-annot-copy" title="複製標註圖片到剪貼簿，可直接在輸入框 Ctrl+V 貼上">📋 複製圖片 (Ctrl+V)</button>
-        <button class="annot-action-btn" id="btn-annot-send" title="直接送出給 Agent">💬 直接發送</button>
+        <button class="annot-action-btn btn-primary" id="btn-annot-copy" title="複製標註圖片到剪貼簿，可直接在輸入框按 Ctrl+V 貼上">📋 Ctrl + C, V</button>
+        <button class="annot-action-btn" id="btn-annot-send" title="向 Agent 提問 (包含標註圖片)">💬 Ask Agent</button>
       </div>
     `;
 
@@ -452,71 +550,17 @@ class ImagePreviewStrategy {
   }
 
   openSendPopover() {
-    const popover = document.getElementById('annot-send-popover');
-    const input = document.getElementById('annot-prompt-input');
-    if (!popover || !input) {
-      this.sendAnnotatedImageToChat();
-      return;
+    if (typeof window.openAskAgentPopover === 'function') {
+      window.openAskAgentPopover({
+        title: '💬 提問 Agent (標註圖片)',
+        placeholder: '請輸入想對 AI Agent 說的話（按 Enter 直接發送，Shift+Enter 換行）...',
+        onSubmit: async (customMessage) => {
+          await this.sendAnnotatedImageToChat(customMessage);
+        }
+      });
+    } else {
+      this.sendAnnotatedImageToChat('');
     }
-
-    if (!popover.hidden) {
-      popover.hidden = true;
-      return;
-    }
-
-    popover.hidden = false;
-    input.value = '';
-    setTimeout(() => input.focus(), 25);
-
-    const btnSubmit = document.getElementById('btn-popover-submit');
-    const btnCancel = document.getElementById('btn-popover-cancel');
-    const btnClose = document.getElementById('btn-popover-close');
-
-    const cleanup = () => {
-      btnSubmit?.removeEventListener('click', handleSubmit);
-      btnCancel?.removeEventListener('click', handleClose);
-      btnClose?.removeEventListener('click', handleClose);
-      input.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('click', handleOutsideClick);
-    };
-
-    const handleClose = (e) => {
-      if (e) e.preventDefault();
-      popover.hidden = true;
-      cleanup();
-    };
-
-    const handleSubmit = async (e) => {
-      if (e) e.preventDefault();
-      const customMessage = input.value.trim();
-      popover.hidden = true;
-      cleanup();
-      await this.sendAnnotatedImageToChat(customMessage);
-    };
-
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        handleClose();
-      } else if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSubmit();
-      }
-    };
-
-    const handleOutsideClick = (e) => {
-      if (!popover.contains(e.target) && !this.toolbarEl?.contains(e.target)) {
-        handleClose();
-      }
-    };
-
-    btnSubmit?.addEventListener('click', handleSubmit);
-    btnCancel?.addEventListener('click', handleClose);
-    btnClose?.addEventListener('click', handleClose);
-    input.addEventListener('keydown', handleKeyDown);
-    setTimeout(() => {
-      document.addEventListener('click', handleOutsideClick);
-    }, 50);
   }
 
   saveHistory() {
@@ -674,7 +718,7 @@ class ImagePreviewStrategy {
     } finally {
       if (copyBtn) {
         copyBtn.disabled = false;
-        copyBtn.textContent = '📋 複製圖片 (Ctrl+V)';
+        copyBtn.textContent = '📋 Ctrl + C, V';
       }
     }
   }
@@ -717,7 +761,7 @@ class ImagePreviewStrategy {
         const data = await res.json();
         if (data && (data.fullPath || data.name)) {
           const cleanPath = (data.fullPath || '').replace(/\\/g, '/');
-          let prompt = `Here is the annotated image with my markings on \`${this.fileData.name}\`:\n\n![Annotated Image](file:///${cleanPath})\n`;
+          let prompt = `Here is the annotated image with my markings on \`${this.fileData.name}\`:\n\n![Annotated Image](file:///${cleanPath})\n[📁 開啟標註圖片原檔](file:///${cleanPath})\n`;
           if (customMessage) {
             prompt += `\n**使用者說明 / 提問**：\n${customMessage}\n`;
           }
@@ -727,7 +771,7 @@ class ImagePreviewStrategy {
           }
 
           if (typeof showToast === 'function') {
-            showToast(customMessage ? '💬 標註圖片與訊息已送至 Agent！' : '💬 標註圖片已直接送至 Agent！');
+            showToast(customMessage ? '💬 標註圖片與訊息已送至 Agent！' : '💬 標註圖片已送至 Agent！');
           }
           return;
         }
@@ -744,7 +788,7 @@ class ImagePreviewStrategy {
     } finally {
       if (sendBtn) {
         sendBtn.disabled = false;
-        sendBtn.textContent = '💬 直接發送';
+        sendBtn.textContent = '💬 Ask Agent';
       }
     }
   }
