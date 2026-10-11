@@ -128,6 +128,40 @@ function selectRange(targetRow) {
 }
 
 // ---------------------------------------------------------------------------
+// Native Antigravity Host Tab Integration
+// ---------------------------------------------------------------------------
+async function openFileInNativeTab(itemOrPath) {
+  let targetPath = '';
+  let fileName = '';
+
+  if (typeof itemOrPath === 'string') {
+    targetPath = itemOrPath;
+    fileName = itemOrPath.split(/[/\\]/).pop();
+  } else if (itemOrPath && typeof itemOrPath === 'object') {
+    targetPath = itemOrPath.fullPath || itemOrPath.relPath;
+    fileName = itemOrPath.name || targetPath.split(/[/\\]/).pop();
+  }
+
+  if (!targetPath) return;
+
+  try {
+    showToast(`正在開啟 ${fileName}...`);
+    const res = await fetchApi('/api/open-native-tab', {
+      method: 'POST',
+      body: { path: targetPath, fullPath: itemOrPath?.fullPath }
+    });
+
+    if (res && res.success) {
+      showToast(`📑 已在 Antigravity 主分頁開啟: ${fileName}`);
+    } else {
+      showToast(`開啟失敗: ${res?.error || '未知錯誤'}`);
+    }
+  } catch (err) {
+    showToast(`開啟失敗: ${err.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tree Rendering
 // ---------------------------------------------------------------------------
 function createTreeNode(item, level = 0) {
@@ -168,6 +202,14 @@ function createTreeNode(item, level = 0) {
     const actions = document.createElement('div');
     actions.className = 'tree-actions';
 
+    const btnOpenTab = document.createElement('button');
+    btnOpenTab.innerHTML = '↗️';
+    btnOpenTab.title = '在 Antigravity 主分頁開啟 (Open in Native Tab)';
+    btnOpenTab.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openFileInNativeTab(item);
+    });
+
     const btnChat = document.createElement('button');
     btnChat.innerHTML = '💬';
     btnChat.title = 'Ask Agent about this file';
@@ -184,6 +226,7 @@ function createTreeNode(item, level = 0) {
       openPreview(item.relPath);
     });
 
+    actions.appendChild(btnOpenTab);
     actions.appendChild(btnView);
     actions.appendChild(btnChat);
     row.appendChild(actions);
@@ -262,6 +305,30 @@ function createTreeNode(item, level = 0) {
         selectItem(item, row, false);
         openPreview(item.relPath);
       }
+    }
+  });
+
+  // Right-click: Open directly in Antigravity's native preview tab
+  row.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!item.isDirectory) {
+      clearSelection();
+      selectItem(item, row, false);
+      openFileInNativeTab(item);
+    } else {
+      toggleFolder();
+    }
+  });
+
+  // Double-click: Open in Antigravity's native preview tab
+  row.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!item.isDirectory) {
+      openFileInNativeTab(item);
+    } else {
+      toggleFolder();
     }
   });
 
@@ -775,6 +842,12 @@ async function init() {
       }
     });
   }
+
+  $('btn-open-tab')?.addEventListener('click', () => {
+    if (activePreviewFile) {
+      openFileInNativeTab(activePreviewFile);
+    }
+  });
 
   $('btn-close-preview').addEventListener('click', () => {
     $('preview-drawer').hidden = true;

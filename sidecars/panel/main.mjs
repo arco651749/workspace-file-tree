@@ -436,4 +436,132 @@ app.api('/api/copy-text-to-clipboard', async (data) => {
   }
 });
 
+// 8. Open file directly in Antigravity's native preview tab via CDP
+function getDevToolsPort() {
+  const candidates = [
+    process.env.APPDATA ? join(process.env.APPDATA, 'Antigravity', 'DevToolsActivePort') : null,
+    process.env.USERPROFILE ? join(process.env.USERPROFILE, 'AppData', 'Roaming', 'Antigravity', 'DevToolsActivePort') : null,
+  ].filter(Boolean);
+
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      try {
+        const content = readFileSync(p, 'utf8');
+        const firstLine = content.split(/\r?\n/)[0].trim();
+        const port = parseInt(firstLine, 10);
+        if (port > 0 && port < 65536) return port;
+      } catch (err) {
+        console.warn('Failed to read DevToolsActivePort from', p, err);
+      }
+    }
+  }
+  return 52369; // Fallback default
+}
+
+async function openNativeTab(filePath) {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const fileUri = normalizedPath.startsWith('file:///') ? normalizedPath : `file:///${normalizedPath.replace(/^\/+/, '')}`;
+  const port = getDevToolsPort();
+
+  const listRes = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
+  const list = await listRes.json();
+  const pageTarget = list.find(t => t.type === 'page');
+  if (!pageTarget || !pageTarget.webSocketDebuggerUrl) {
+    throw new Error('Antigravity main window target not found in DevTools list');
+  }
+
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
+    const timer = setTimeout(() => {
+      try { ws.close(); } catch {}
+      reject(new Error('WebSocket connection timed out'));
+    }, 4000);
+
+    ws.onopen = () => {
+      const expr = `(() => {
+        const all = Array.from(document.querySelectorAll('*'));
+        const el = all.find(e => Object.keys(e).some(k => k.startsWith('__reactFiber$')));
+        let openUri = null;
+        if (el) {
+          const k = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
+          let root = el[k];
+          while (root.return) root = root.return;
+          function search(node) {
+            if (!node || openUri) return;
+            if (node.memoizedProps && typeof node.memoizedProps.openUri === 'function') {
+              openUri = node.memoizedProps.openUri;
+              return;
+            }
+            let child = node.child;
+            while (child) {
+              search(child);
+              child = child.sibling;
+            }
+          }
+          search(root);
+        }
+
+        const target = ${JSON.stringify(fileUri)};
+        if (openUri) {
+          openUri(target);
+          return { success: true, method: 'openUri', target };
+        }
+
+        // Fallback: router query param
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('tab', 'file__' + encodeURIComponent(target));
+          window.history.pushState({}, '', url.toString());
+          window.dispatchEvent(new PopStateEvent('popstate'));
+          return { success: true, method: 'pushState', target };
+        } catch (e) {
+          return { error: 'Both openUri and pushState failed: ' + e.message };
+        }
+      })()`;
+
+      ws.send(JSON.stringify({
+        id: 101,
+        method: 'Runtime.evaluate',
+        params: { expression: expr, returnByValue: true }
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      clearTimeout(timer);
+      try {
+        const data = JSON.parse(event.data);
+        const val = data.result?.result?.value;
+        resolve(val);
+      } catch (err) {
+        reject(err);
+      } finally {
+        try { ws.close(); } catch {}
+      }
+    };
+
+    ws.onerror = (err) => {
+      clearTimeout(timer);
+      reject(err);
+    };
+  });
+}
+
+app.api('/api/open-native-tab', async (data) => {
+  const root = resolveRoot(data);
+  const targetPath = data?.fullPath || (data?.path ? resolve(root, data.path) : null);
+  if (!targetPath) return { error: 'No file path provided' };
+
+  try {
+    const result = await openNativeTab(targetPath);
+    return {
+      success: true,
+      result,
+      fullPath: targetPath,
+      name: basename(targetPath)
+    };
+  } catch (err) {
+    return { error: String(err.message || err) };
+  }
+});
+
 app.run();
