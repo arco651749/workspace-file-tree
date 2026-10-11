@@ -753,6 +753,8 @@ async function init() {
   $('btn-close-preview').addEventListener('click', () => {
     $('preview-drawer').hidden = true;
     if ($('preview-resizer')) $('preview-resizer').hidden = true;
+    if ($('annot-send-popover')) $('annot-send-popover').hidden = true;
+    if ($('selection-quote-bubble')) $('selection-quote-bubble').hidden = true;
     if (window.previewManager) window.previewManager.destroy();
     const body = $('preview-body');
     if (body) body.innerHTML = '';

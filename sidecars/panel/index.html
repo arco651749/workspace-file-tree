@@ -74,6 +74,22 @@
           <span>💬</span> 直接發送
         </button>
       </div>
+
+      <!-- Direct Send Message Input Popover -->
+      <div id="annot-send-popover" class="annot-send-popover" hidden>
+        <div class="popover-header">
+          <span class="popover-title">💬 附帶訊息發送給 Agent</span>
+          <button class="icon-btn" id="btn-popover-close" title="關閉 (Esc)">✕</button>
+        </div>
+        <div class="popover-body">
+          <textarea id="annot-prompt-input" rows="3" placeholder="請輸入想對 AI Agent 說的話（按 Enter 直接發送，Shift+Enter 換行）..."></textarea>
+        </div>
+        <div class="popover-footer">
+          <span class="popover-hint">Enter 發送 · Esc 取消</span>
+          <button class="btn btn-secondary" id="btn-popover-cancel">取消</button>
+          <button class="btn btn-primary" id="btn-popover-submit">確認發送</button>
+        </div>
+      </div>
     </div>
 
     <!-- Toast Notification -->

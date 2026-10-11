@@ -444,10 +444,79 @@ class ImagePreviewStrategy {
       await this.copyAnnotatedImageToClipboard();
     });
 
-    // Send to Chat (Secondary action: direct submission)
-    this.toolbarEl.querySelector('#btn-annot-send')?.addEventListener('click', async () => {
-      await this.sendAnnotatedImageToChat();
+    // Send to Chat (Opens popover to enter custom message)
+    this.toolbarEl.querySelector('#btn-annot-send')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openSendPopover();
     });
+  }
+
+  openSendPopover() {
+    const popover = document.getElementById('annot-send-popover');
+    const input = document.getElementById('annot-prompt-input');
+    if (!popover || !input) {
+      this.sendAnnotatedImageToChat();
+      return;
+    }
+
+    if (!popover.hidden) {
+      popover.hidden = true;
+      return;
+    }
+
+    popover.hidden = false;
+    input.value = '';
+    setTimeout(() => input.focus(), 25);
+
+    const btnSubmit = document.getElementById('btn-popover-submit');
+    const btnCancel = document.getElementById('btn-popover-cancel');
+    const btnClose = document.getElementById('btn-popover-close');
+
+    const cleanup = () => {
+      btnSubmit?.removeEventListener('click', handleSubmit);
+      btnCancel?.removeEventListener('click', handleClose);
+      btnClose?.removeEventListener('click', handleClose);
+      input.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('click', handleOutsideClick);
+    };
+
+    const handleClose = (e) => {
+      if (e) e.preventDefault();
+      popover.hidden = true;
+      cleanup();
+    };
+
+    const handleSubmit = async (e) => {
+      if (e) e.preventDefault();
+      const customMessage = input.value.trim();
+      popover.hidden = true;
+      cleanup();
+      await this.sendAnnotatedImageToChat(customMessage);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleClose();
+      } else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+
+    const handleOutsideClick = (e) => {
+      if (!popover.contains(e.target) && !this.toolbarEl?.contains(e.target)) {
+        handleClose();
+      }
+    };
+
+    btnSubmit?.addEventListener('click', handleSubmit);
+    btnCancel?.addEventListener('click', handleClose);
+    btnClose?.addEventListener('click', handleClose);
+    input.addEventListener('keydown', handleKeyDown);
+    setTimeout(() => {
+      document.addEventListener('click', handleOutsideClick);
+    }, 50);
   }
 
   saveHistory() {
@@ -610,7 +679,7 @@ class ImagePreviewStrategy {
     }
   }
 
-  async sendAnnotatedImageToChat() {
+  async sendAnnotatedImageToChat(customMessage = '') {
     const sendBtn = this.toolbarEl?.querySelector('#btn-annot-send');
     if (sendBtn) {
       sendBtn.disabled = true;
@@ -635,20 +704,9 @@ class ImagePreviewStrategy {
 
       const base64 = mergedCanvas.toDataURL('image/png');
 
-      // Also copy to clipboard as convenience
-      try {
-        if (navigator.clipboard && window.ClipboardItem) {
-          const blobPromise = new Promise((resolve, reject) => {
-            mergedCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob failed')), 'image/png');
-          });
-          const item = new ClipboardItem({ 'image/png': blobPromise });
-          await navigator.clipboard.write([item]);
-        }
-      } catch (_) {}
-
-      // Save to disk through Sidecar API
+      // Save to disk through Sidecar API & copy to Windows OS clipboard
       if (window.sidecar && window.sidecar.fetch) {
-        const res = await window.sidecar.fetch('/api/save-annotated-image', {
+        const res = await window.sidecar.fetch('/api/copy-image-to-clipboard', {
           method: 'POST',
           body: JSON.stringify({
             base64,
@@ -657,16 +715,19 @@ class ImagePreviewStrategy {
         });
 
         const data = await res.json();
-        if (data.fullPath) {
-          const cleanPath = data.fullPath.replace(/\\/g, '/');
-          const prompt = `Here is the annotated image with my markings on \`${this.fileData.name}\`:\n\n![Annotated Image](file:///${cleanPath})\n`;
+        if (data && (data.fullPath || data.name)) {
+          const cleanPath = (data.fullPath || '').replace(/\\/g, '/');
+          let prompt = `Here is the annotated image with my markings on \`${this.fileData.name}\`:\n\n![Annotated Image](file:///${cleanPath})\n`;
+          if (customMessage) {
+            prompt += `\n**使用者說明 / 提問**：\n${customMessage}\n`;
+          }
 
           if (window.sidecar.agent) {
             await window.sidecar.agent.sendMessage(prompt);
           }
 
           if (typeof showToast === 'function') {
-            showToast('💬 標註圖片已直接送至 Agent！');
+            showToast(customMessage ? '💬 標註圖片與訊息已送至 Agent！' : '💬 標註圖片已直接送至 Agent！');
           }
           return;
         }
@@ -689,6 +750,9 @@ class ImagePreviewStrategy {
   }
 
   destroy() {
+    const popover = document.getElementById('annot-send-popover');
+    if (popover) popover.hidden = true;
+
     const sendAgentBtn = document.getElementById('btn-send-agent');
     if (sendAgentBtn) sendAgentBtn.hidden = false;
 
