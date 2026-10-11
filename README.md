@@ -87,5 +87,16 @@ git clone <repo-url> "%USERPROFILE%\.gemini\config\plugins\workspace-file-tree"
 
 ---
 
+## 🗺️ Roadmap & Planned Features (TODO)
+
+- [ ] 📑 **Enhanced Full-Tab Viewers for Binary Documents (PDF & Office)**:
+  - *Context*: Antigravity 官方內建的檔案分頁目前對二進位檔案缺乏專屬檢視器，直接進入 Monaco Editor 會呈現原始字元串流與亂碼（Mojibake）。
+  - **規劃解決方案 (Planned Solution)**：
+    - [ ] **全螢幕 PDF 分頁檢視器 (Full-Tab PDF Viewer)**：利用已內建的 `pdf.min.js`，在主分頁中提供高畫質多頁捲動、縮放與文字選取功能。
+    - [ ] **全螢幕 Office 分頁檢視器 (Full-Tab Office Viewer)**：利用 `officecli` 將 `.docx`、`.xlsx`、`.pptx` 轉換為格式化 HTML 在主分頁呈現完整版面。
+    - [ ] **CDP 動態分頁標籤名稱置換 (Dynamic Tab Titles)**：透過底層 Chrome DevTools 協定自動將分頁頂部標籤更新為真實檔案名稱（例如 `📕 document.pdf`、`📄 report.docx`）。
+
+---
+
 ## 📄 License
 MIT License
