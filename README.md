@@ -8,6 +8,14 @@ An interactive, feature-rich Project File Tree Sidebar extension for **ANTIGRAVI
 
 ## ✨ Features
 
+- 📑 **Native Tab Integration (Antigravity 2.22+)**:
+  - **Right-Click**: Right-click any file in the tree to immediately open it in Antigravity's built-in native preview tab!
+  - **Double-Click**: Standard IDE muscle-memory double-click to open in native tab.
+  - **Hover Action (`↗️`) & Header Button**: Dedicated one-click trigger buttons in tree rows and preview drawer.
+  - Automatically loads the native tool tailored for each file type: **Markdown Viewer** (Preview/Raw), **Image Viewer** (region commenting), or **Monaco Editor**.
+- 💬 **Ask Agent & Selection Quote**:
+  - Inline prompt popover for asking the AI agent about files, image annotations, or quoted text snippets.
+  - Native OS clipboard integration (`📋 Ctrl + C, V`) for instant paste into chat.
 - 📁 **Active Workspace Awareness**: Automatically detects and displays the files in your current project workspace. Supports dynamic root switching (`📂`).
 - 🔍 **Real-time Filter Search**: Instant type-to-filter by file name or relative path.
 - 👁️ **Hidden File Filtering**: Quickly toggle visibility of dotfiles (`.git`, `.vscode`, etc.) and common ignore patterns.
