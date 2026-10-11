@@ -55,6 +55,18 @@ workspace-file-tree/
 
 ---
 
+## 📦 Requirements & Dependencies
+
+- **Host Environment**: **ANTIGRAVITY 2.22.0 或以上版本** (Windows / macOS / Linux)。
+- **Zero NPM Dependencies (零額外依賴)**:
+  - ⚡ **無需執行 `npm install`！**
+  - 後端直接採用 Antigravity 內建的 Node.js 執行階段與原生 `sidecar_sdk`。
+  - 前端程式庫（如語法高亮 `highlight.min.js`、PDF 檢視器 `pdf.min.js` 等）皆已完整打包在倉庫中，開箱即用。
+- **Optional Tools (選用擴充工具)**:
+  - `officecli`: *(可選)* 若需要側欄直接預覽 Microsoft Office 文件（`.docx`, `.xlsx`, `.pptx`），可安裝 `officecli` 工具；未安裝時不影響其他任何檔案類型的預覽與原生分頁開啟功能。
+
+---
+
 ## 🛠️ Installation & Usage
 
 ### 1. Installation
