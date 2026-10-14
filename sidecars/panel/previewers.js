@@ -79,7 +79,7 @@ function parseMarkdownToHtml(markdown) {
       rawCode: code.trimEnd(),
       code: escapeHtml(code.trimEnd())
     });
-    return `<!--CODE_BLOCK_${idx}-->`;
+    return `<!--CODEBLOCK${idx}-->`;
   });
 
   // Extract inline code
@@ -87,7 +87,7 @@ function parseMarkdownToHtml(markdown) {
   html = html.replace(/`([^`\n]+)`/g, (match, code) => {
     const idx = inlineCodes.length;
     inlineCodes.push(escapeHtml(code));
-    return `<!--INLINE_CODE_${idx}-->`;
+    return `<!--INLINECODE${idx}-->`;
   });
 
   const lines = html.split('\n');
@@ -202,7 +202,7 @@ function parseMarkdownToHtml(markdown) {
   let result = output.join('\n');
 
   // Restore Code Blocks with Syntax Highlighting
-  result = result.replace(/<!--CODE_BLOCK_(\d+)-->/g, (m, idx) => {
+  result = result.replace(/<!--CODEBLOCK(\d+)-->/g, (m, idx) => {
     const item = codeBlocks[idx];
     let codeHtml = item.code;
     if (window.hljs && item.lang) {
@@ -220,7 +220,7 @@ function parseMarkdownToHtml(markdown) {
   });
 
   // Restore Inline Code
-  result = result.replace(/<!--INLINE_CODE_(\d+)-->/g, (m, idx) => {
+  result = result.replace(/<!--INLINECODE(\d+)-->/g, (m, idx) => {
     return `<code class="md-inline-code">${inlineCodes[idx]}</code>`;
   });
 
