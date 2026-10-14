@@ -77,6 +77,7 @@ async function fetchApi(path, options = {}) {
   });
   return res.json();
 }
+window.fetchApi = fetchApi;
 
 // ---------------------------------------------------------------------------
 // Selection Management

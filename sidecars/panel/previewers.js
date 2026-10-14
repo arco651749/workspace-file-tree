@@ -388,6 +388,11 @@ class ImagePreviewStrategy {
     this.history = [];
     this.fileData = null;
     this.context = null;
+    this.viewMode = 'fit'; // 'fit' | 'custom'
+    this.zoomRatio = 1.0;
+    this.resizeObserver = null;
+    this.keyHandler = null;
+    this.pasteHandler = null;
   }
 
   supports(fileData) {
@@ -397,11 +402,31 @@ class ImagePreviewStrategy {
   }
 
   render(container, fileData, context) {
+    // Note: Do NOT destroy this.toolbarEl here! getActions() was already called and mounted the toolbar.
+    if (this.resizeObserver) {
+      try { this.resizeObserver.disconnect(); } catch (_) {}
+      this.resizeObserver = null;
+    }
+    if (this.canvasEl) {
+      this.canvasEl.remove();
+      this.canvasEl = null;
+      this.ctx = null;
+    }
+    if (this.imgEl) {
+      this.imgEl.src = '';
+      this.imgEl = null;
+    }
+    this.history = [];
+
     this.container = container;
     this.fileData = fileData;
     this.context = context;
+    this.viewMode = 'fit';
+    this.zoomRatio = 1.0;
 
+    container.classList.add('drawer-body-image-mode');
     container.innerHTML = '';
+
     const wrapper = document.createElement('div');
     wrapper.className = 'preview-image-container';
 
@@ -411,18 +436,102 @@ class ImagePreviewStrategy {
     this.imgEl = document.createElement('img');
     this.imgEl.alt = fileData.name || 'Image Preview';
 
-    this.imgEl.onload = () => {
+    const onLoaded = () => {
+      if (!this.imgEl || !this.innerWrapper) return;
       context.setSizeText(`${context.formatSize(fileData.size)} · ${this.imgEl.naturalWidth}×${this.imgEl.naturalHeight}px`);
       this.initCanvas();
+      this.updateLayout();
+
+      if (this.resizeObserver) this.resizeObserver.disconnect();
+      this.resizeObserver = new ResizeObserver(() => {
+        if (this.viewMode === 'fit') {
+          this.updateLayout();
+        }
+      });
+      this.resizeObserver.observe(wrapper);
     };
+
+    this.imgEl.onload = onLoaded;
     this.imgEl.onerror = () => {
       context.setSizeText(`${context.formatSize(fileData.size)} · (Decode error)`);
     };
 
+    // 雙擊快速切換 Fit 與 1:1
+    wrapper.addEventListener('dblclick', (e) => {
+      if (e.target === this.canvasEl || e.target === this.imgEl || e.target === wrapper) {
+        if (this.viewMode === 'fit') {
+          this.viewMode = 'custom';
+          this.zoomRatio = 1.0;
+        } else {
+          this.viewMode = 'fit';
+        }
+        this.updateLayout();
+      }
+    });
+
+    // 滾輪縮放支援 (可按住 Ctrl 或直接滾輪)
+    wrapper.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 1.15 : 0.87;
+      this.zoomRatio = Math.max(0.05, Math.min(10.0, this.zoomRatio * delta));
+      this.viewMode = 'custom';
+      this.updateLayout();
+    }, { passive: false });
+
     this.imgEl.src = fileData.dataUrl || '';
+    if (this.imgEl.complete && this.imgEl.naturalWidth > 0) {
+      onLoaded();
+    }
+
     this.innerWrapper.appendChild(this.imgEl);
     wrapper.appendChild(this.innerWrapper);
     container.appendChild(wrapper);
+
+    this.setupKeyboardShortcuts();
+    this.setupPasteListener();
+  }
+
+  updateLayout() {
+    if (!this.imgEl || !this.innerWrapper || !this.container) return;
+    const nw = this.imgEl.naturalWidth;
+    const nh = this.imgEl.naturalHeight;
+    if (!nw || !nh) return;
+
+    const wrapper = this.innerWrapper.parentElement;
+    const availW = (wrapper?.clientWidth || this.container.clientWidth) - 16;
+    const availH = (wrapper?.clientHeight || this.container.clientHeight) - 16;
+    if (availW <= 0 || availH <= 0) return;
+
+    const btnFit = this.toolbarEl?.querySelector('#btn-zoom-fit');
+    const btn100 = this.toolbarEl?.querySelector('#btn-zoom-100');
+    const zoomText = this.toolbarEl?.querySelector('#zoom-text');
+
+    if (this.viewMode === 'fit') {
+      const fitScale = Math.min(availW / nw, availH / nh);
+      this.zoomRatio = fitScale;
+      wrapper?.classList.remove('mode-scrollable');
+
+      const dw = Math.max(10, Math.round(nw * fitScale));
+      const dh = Math.max(10, Math.round(nh * fitScale));
+      this.innerWrapper.style.width = `${dw}px`;
+      this.innerWrapper.style.height = `${dh}px`;
+
+      btnFit?.classList.add('active');
+      btn100?.classList.remove('active');
+      if (zoomText) zoomText.textContent = `Fit (${Math.round(fitScale * 100)}%)`;
+    } else {
+      wrapper?.classList.add('mode-scrollable');
+
+      const dw = Math.max(10, Math.round(nw * this.zoomRatio));
+      const dh = Math.max(10, Math.round(nh * this.zoomRatio));
+      this.innerWrapper.style.width = `${dw}px`;
+      this.innerWrapper.style.height = `${dh}px`;
+
+      btnFit?.classList.remove('active');
+      const is100 = Math.abs(this.zoomRatio - 1.0) < 0.02;
+      btn100?.classList.toggle('active', is100);
+      if (zoomText) zoomText.textContent = `${Math.round(this.zoomRatio * 100)}%`;
+    }
   }
 
   getActions(fileData, context) {
@@ -430,10 +539,18 @@ class ImagePreviewStrategy {
     const sendAgentBtn = document.getElementById('btn-send-agent');
     if (sendAgentBtn) sendAgentBtn.hidden = true;
 
-    // Create Annotation Toolbar merged directly into the drawer header bar
+    // Create Annotation & Zoom Toolbar merged directly into the drawer header bar
     this.toolbarEl = document.createElement('div');
     this.toolbarEl.className = 'annotation-toolbar';
     this.toolbarEl.innerHTML = `
+      <div class="annot-zoom-group">
+        <button class="annot-btn active" id="btn-zoom-fit" title="適應視窗大小 (Fit to window)">🔍 適應</button>
+        <button class="annot-btn" id="btn-zoom-100" title="原始解析度 100% (1:1 原圖)">1:1</button>
+        <button class="annot-btn" id="btn-zoom-out" title="縮小 (滾輪向下)">➖</button>
+        <span class="zoom-text" id="zoom-text">Fit</span>
+        <button class="annot-btn" id="btn-zoom-in" title="放大 (滾輪向上)">➕</button>
+      </div>
+      <div class="annot-divider"></div>
       <div class="annot-tool-group">
         <button class="annot-btn active" data-tool="pen" title="畫筆 (Freehand)">✏️</button>
         <button class="annot-btn" data-tool="rect" title="框選 (Box)">🔲</button>
@@ -492,10 +609,34 @@ class ImagePreviewStrategy {
   setupToolbarListeners() {
     if (!this.toolbarEl) return;
 
-    // Tool selection
-    this.toolbarEl.querySelectorAll('.annot-btn').forEach(btn => {
+    // Zoom controls
+    this.toolbarEl.querySelector('#btn-zoom-fit')?.addEventListener('click', () => {
+      this.viewMode = 'fit';
+      this.updateLayout();
+    });
+
+    this.toolbarEl.querySelector('#btn-zoom-100')?.addEventListener('click', () => {
+      this.viewMode = 'custom';
+      this.zoomRatio = 1.0;
+      this.updateLayout();
+    });
+
+    this.toolbarEl.querySelector('#btn-zoom-in')?.addEventListener('click', () => {
+      this.viewMode = 'custom';
+      this.zoomRatio = Math.min(10.0, this.zoomRatio * 1.25);
+      this.updateLayout();
+    });
+
+    this.toolbarEl.querySelector('#btn-zoom-out')?.addEventListener('click', () => {
+      this.viewMode = 'custom';
+      this.zoomRatio = Math.max(0.05, this.zoomRatio / 1.25);
+      this.updateLayout();
+    });
+
+    // Tool selection (scoped to drawing tools only)
+    this.toolbarEl.querySelectorAll('.annot-tool-group .annot-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.toolbarEl.querySelectorAll('.annot-btn').forEach(b => b.classList.remove('active'));
+        this.toolbarEl.querySelectorAll('.annot-tool-group .annot-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this.currentTool = btn.dataset.tool;
       });
@@ -521,12 +662,7 @@ class ImagePreviewStrategy {
 
     // Undo
     this.toolbarEl.querySelector('#btn-annot-undo')?.addEventListener('click', () => {
-      if (this.history.length > 0) {
-        const lastState = this.history.pop();
-        this.ctx.putImageData(lastState, 0, 0);
-      } else if (this.canvasEl && this.ctx) {
-        this.ctx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
-      }
+      this.undo();
     });
 
     // Clear
@@ -547,6 +683,119 @@ class ImagePreviewStrategy {
       e.stopPropagation();
       this.openSendPopover();
     });
+  }
+
+  undo() {
+    if (this.history.length > 0) {
+      const lastState = this.history.pop();
+      if (this.ctx && lastState) {
+        this.ctx.putImageData(lastState, 0, 0);
+      }
+    } else if (this.canvasEl && this.ctx) {
+      this.ctx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
+    }
+  }
+
+  setupKeyboardShortcuts() {
+    this.removeKeyboardShortcuts();
+    this.keyHandler = async (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
+        return;
+      }
+      const drawer = document.getElementById('preview-drawer');
+      if (!drawer || drawer.hidden || !this.imgEl) return;
+
+      // Ctrl+C / Cmd+C: Copy annotated image to clipboard!
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+        e.preventDefault();
+        await this.copyAnnotatedImageToClipboard();
+      }
+      // Ctrl+Z / Cmd+Z: Undo last drawing stroke
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        this.undo();
+      }
+      // Ctrl+0: Fit to window
+      else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        this.viewMode = 'fit';
+        this.updateLayout();
+      }
+      // Ctrl+1: 1:1 original size
+      else if ((e.ctrlKey || e.metaKey) && e.key === '1') {
+        e.preventDefault();
+        this.viewMode = 'custom';
+        this.zoomRatio = 1.0;
+        this.updateLayout();
+      }
+    };
+    window.addEventListener('keydown', this.keyHandler);
+  }
+
+  removeKeyboardShortcuts() {
+    if (this.keyHandler) {
+      window.removeEventListener('keydown', this.keyHandler);
+      this.keyHandler = null;
+    }
+  }
+
+  setupPasteListener() {
+    this.removePasteListener();
+    this.pasteHandler = (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
+        return;
+      }
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            const reader = new FileReader();
+            reader.onload = (loadEvt) => {
+              const dataUrl = loadEvt.target.result;
+              const fakeData = {
+                name: `Pasted_Image_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.png`,
+                path: 'pasted_image.png',
+                ext: '.png',
+                isImage: true,
+                size: file.size,
+                dataUrl
+              };
+              if (window.previewManager) {
+                const body = document.getElementById('preview-body');
+                const title = document.getElementById('preview-title');
+                const drawer = document.getElementById('preview-drawer');
+                if (drawer) drawer.hidden = false;
+                if (title) title.textContent = fakeData.name;
+                const customActions = document.getElementById('preview-custom-actions');
+                const context = {
+                  actionsHost: customActions,
+                  setSizeText: (txt) => { const el = document.getElementById('preview-size'); if (el) el.textContent = txt; },
+                  setIcon: (ico) => { const el = document.getElementById('preview-icon'); if (el) el.textContent = ico; },
+                  formatSize: (bytes) => (bytes / 1024).toFixed(1) + ' KB'
+                };
+                window.previewManager.render(body, fakeData, context);
+                if (typeof showToast === 'function') {
+                  showToast('📋 已貼上剪貼簿圖片，可直接進行標註或按 Ctrl+C / Ask 發送！');
+                }
+              }
+            };
+            reader.readAsDataURL(file);
+            break;
+          }
+        }
+      }
+    };
+    window.addEventListener('paste', this.pasteHandler);
+  }
+
+  removePasteListener() {
+    if (this.pasteHandler) {
+      window.removeEventListener('paste', this.pasteHandler);
+      this.pasteHandler = null;
+    }
   }
 
   openSendPopover() {
@@ -581,8 +830,8 @@ class ImagePreviewStrategy {
 
     const getCanvasCoords = (e) => {
       const rect = this.canvasEl.getBoundingClientRect();
-      const scaleX = this.canvasEl.width / rect.width;
-      const scaleY = this.canvasEl.height / rect.height;
+      const scaleX = rect.width > 0 ? (this.canvasEl.width / rect.width) : 1;
+      const scaleY = rect.height > 0 ? (this.canvasEl.height / rect.height) : 1;
       return {
         x: (e.clientX - rect.left) * scaleX,
         y: (e.clientY - rect.top) * scaleY
@@ -671,22 +920,37 @@ class ImagePreviewStrategy {
 
       // 1. Primary: Use Sidecar native Windows OS Clipboard API
       // (Completely bypasses iframe Permissions Policy restriction crbug 414348233)
-      if (window.sidecar && window.sidecar.fetch) {
-        try {
+      let data = null;
+      try {
+        if (typeof fetchApi === 'function') {
+          data = await fetchApi('/api/copy-image-to-clipboard', {
+            method: 'POST',
+            body: { base64, originalPath: this.fileData?.path }
+          });
+        } else if (window.fetchApi) {
+          data = await window.fetchApi('/api/copy-image-to-clipboard', {
+            method: 'POST',
+            body: { base64, originalPath: this.fileData?.path }
+          });
+        } else if (window.sidecar && window.sidecar.fetch) {
           const res = await window.sidecar.fetch('/api/copy-image-to-clipboard', {
             method: 'POST',
-            body: JSON.stringify({
-              base64,
-              originalPath: this.fileData?.path,
-            })
+            body: JSON.stringify({ base64, originalPath: this.fileData?.path })
           });
-          const data = await res.json();
-          if (data && (data.ok || data.success)) {
-            copied = true;
-          }
-        } catch (err) {
-          console.warn('Sidecar native clipboard error:', err);
+          data = await res.json();
+        } else {
+          const res = await fetch('/api/copy-image-to-clipboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64, originalPath: this.fileData?.path })
+          });
+          data = await res.json();
         }
+        if (data && (data.ok || data.success)) {
+          copied = true;
+        }
+      } catch (err) {
+        console.warn('Native clipboard API call failed:', err);
       }
 
       // 2. Fallback: Browser Clipboard API if allowed
@@ -749,32 +1013,52 @@ class ImagePreviewStrategy {
       const base64 = mergedCanvas.toDataURL('image/png');
 
       // Save to disk through Sidecar API & copy to Windows OS clipboard
-      if (window.sidecar && window.sidecar.fetch) {
-        const res = await window.sidecar.fetch('/api/copy-image-to-clipboard', {
-          method: 'POST',
-          body: JSON.stringify({
-            base64,
-            originalPath: this.fileData?.path,
-          })
-        });
-
-        const data = await res.json();
-        if (data && (data.fullPath || data.name)) {
-          const cleanPath = (data.fullPath || '').replace(/\\/g, '/');
-          let prompt = `Here is the annotated image with my markings on \`${this.fileData.name}\`:\n\n![Annotated Image](file:///${cleanPath})\n[📁 開啟標註圖片原檔](file:///${cleanPath})\n`;
-          if (customMessage) {
-            prompt += `\n**使用者說明 / 提問**：\n${customMessage}\n`;
-          }
-
-          if (window.sidecar.agent) {
-            await window.sidecar.agent.sendMessage(prompt);
-          }
-
-          if (typeof showToast === 'function') {
-            showToast(customMessage ? '💬 標註圖片與訊息已送至 Agent！' : '💬 標註圖片已送至 Agent！');
-          }
-          return;
+      let data = null;
+      try {
+        if (typeof fetchApi === 'function') {
+          data = await fetchApi('/api/copy-image-to-clipboard', {
+            method: 'POST',
+            body: { base64, originalPath: this.fileData?.path }
+          });
+        } else if (window.fetchApi) {
+          data = await window.fetchApi('/api/copy-image-to-clipboard', {
+            method: 'POST',
+            body: { base64, originalPath: this.fileData?.path }
+          });
+        } else if (window.sidecar && window.sidecar.fetch) {
+          const res = await window.sidecar.fetch('/api/copy-image-to-clipboard', {
+            method: 'POST',
+            body: JSON.stringify({ base64, originalPath: this.fileData?.path })
+          });
+          data = await res.json();
+        } else {
+          const res = await fetch('/api/copy-image-to-clipboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64, originalPath: this.fileData?.path })
+          });
+          data = await res.json();
         }
+      } catch (err) {
+        console.warn('Save annotated image API call error:', err);
+      }
+
+      if (data && (data.fullPath || data.name)) {
+        const cleanPath = (data.fullPath || '').replace(/\\/g, '/');
+        let prompt = `Here is the annotated image with my markings on \`${this.fileData.name}\`:\n\n![Annotated Image](file:///${cleanPath})\n[📁 開啟標註圖片原檔](file:///${cleanPath})\n`;
+        if (customMessage) {
+          prompt += `\n**使用者說明 / 提問**：\n${customMessage}\n`;
+        }
+
+        const agent = window.sidecar?.agent || (typeof sidecar !== 'undefined' ? sidecar?.agent : null);
+        if (agent) {
+          await agent.sendMessage(prompt);
+        }
+
+        if (typeof showToast === 'function') {
+          showToast(customMessage ? '💬 標註圖片與訊息已送至 Agent！' : '💬 標註圖片已送至 Agent！');
+        }
+        return;
       }
 
       if (typeof showToast === 'function') {
@@ -794,11 +1078,23 @@ class ImagePreviewStrategy {
   }
 
   destroy() {
+    this.removeKeyboardShortcuts();
+    this.removePasteListener();
+
     const popover = document.getElementById('annot-send-popover');
     if (popover) popover.hidden = true;
 
     const sendAgentBtn = document.getElementById('btn-send-agent');
     if (sendAgentBtn) sendAgentBtn.hidden = false;
+
+    if (this.resizeObserver) {
+      try { this.resizeObserver.disconnect(); } catch (_) {}
+      this.resizeObserver = null;
+    }
+    if (this.container) {
+      this.container.classList.remove('drawer-body-image-mode');
+      this.container = null;
+    }
 
     if (this.toolbarEl) {
       this.toolbarEl.remove();
@@ -814,6 +1110,7 @@ class ImagePreviewStrategy {
       this.imgEl.src = '';
       this.imgEl = null;
     }
+    this.innerWrapper = null;
   }
 }
 
