@@ -1520,6 +1520,24 @@ class MediaPreviewStrategy {
         }
       };
 
+      this.mediaEl.onerror = () => {
+        const err = this.mediaEl.error;
+        let errMsg = '載入錯誤';
+        if (err) {
+          switch (err.code) {
+            case 1: errMsg = '載入已中止 (MEDIA_ERR_ABORTED)'; break;
+            case 2: errMsg = '網路傳輸異常 (MEDIA_ERR_NETWORK)'; break;
+            case 3: errMsg = '視訊解碼失敗 (MEDIA_ERR_DECODE)'; break;
+            case 4: errMsg = '不支援的媒體格式 (MEDIA_ERR_SRC_NOT_SUPPORTED)'; break;
+          }
+        }
+        const errDiv = document.createElement('div');
+        errDiv.className = 'empty-state';
+        errDiv.style.cssText = 'color:#f38ba8; padding:12px; font-size:12px; text-align:center;';
+        errDiv.innerHTML = `⚠️ ${errMsg}<br><span style="color:#a6adc8; font-size:11px;">若為特殊編碼，可使用上方按鈕透過外部播放器開啟</span>`;
+        wrapper.appendChild(errDiv);
+      };
+
       wrapper.appendChild(this.mediaEl);
     } else {
       const card = document.createElement('div');

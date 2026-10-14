@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync, createReadStream } from 'node:fs';
 import { dirname, join, relative, resolve, extname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
@@ -184,29 +184,130 @@ const MEDIA_MIMES = {
 
 const OFFICE_EXTS = new Set(['.docx', '.xlsx', '.pptx']);
 
-// 3. Raw Media Streaming API (Direct HTTP endpoint for <audio> and <video>)
-app.api('/api/raw-media', (data) => {
-  const root = resolveRoot(data);
-  if (!data?.path) return new Response('Missing path parameter', { status: 400 });
-  const fullPath = resolve(root, data.path);
-  if (!existsSync(fullPath)) return new Response('Media file not found', { status: 404 });
-
-  const ext = extname(fullPath).toLowerCase();
-  const mime = MEDIA_MIMES[ext] || 'application/octet-stream';
-
+// 3. Raw Media Streaming Handler (Supports HTTP 206 Partial Content, Range headers, HEAD & Streams)
+function handleRawMedia(req, res, url) {
   try {
-    const buffer = readFileSync(fullPath);
-    return new Response(buffer, {
-      contentType: mime,
-      headers: {
-        'Accept-Ranges': 'bytes',
-        'Content-Length': String(buffer.length)
+    const isHead = req.method === 'HEAD';
+    if (req.method !== 'GET' && !isHead) {
+      res.writeHead(405, { 'Content-Type': 'text/plain' });
+      res.end('Method Not Allowed');
+      return;
+    }
+
+    const searchParams = url.searchParams;
+    const pathParam = searchParams.get('path');
+    const rootParam = searchParams.get('root');
+    const workspaceUriParam = searchParams.get('workspaceUri');
+
+    const root = resolveRoot({ root: rootParam, workspaceUri: workspaceUriParam });
+    if (!pathParam) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Missing path parameter');
+      return;
+    }
+
+    const fullPath = resolve(root, pathParam);
+    if (!existsSync(fullPath)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Media file not found');
+      return;
+    }
+
+    const stat = statSync(fullPath);
+    if (stat.isDirectory()) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Cannot stream directory');
+      return;
+    }
+
+    const totalSize = stat.size;
+    const ext = extname(fullPath).toLowerCase();
+    const mime = MEDIA_MIMES[ext] || 'application/octet-stream';
+    const range = req.headers.range;
+
+    if (range) {
+      // Parse Range header e.g. "bytes=0-1000", "bytes=1000-", "bytes=-500"
+      const match = range.match(/bytes=(\d*)-(\d*)/);
+      if (match) {
+        let start = match[1] ? parseInt(match[1], 10) : NaN;
+        let end = match[2] ? parseInt(match[2], 10) : NaN;
+
+        if (isNaN(start) && !isNaN(end)) {
+          start = totalSize - end;
+          end = totalSize - 1;
+        } else if (!isNaN(start) && isNaN(end)) {
+          end = totalSize - 1;
+        }
+
+        if (isNaN(start) || isNaN(end) || start < 0 || start >= totalSize || end < start || end >= totalSize) {
+          res.writeHead(416, {
+            'Content-Range': `bytes */${totalSize}`,
+            'Content-Type': 'text/plain'
+          });
+          res.end('Requested range not satisfiable');
+          return;
+        }
+
+        const chunkSize = (end - start) + 1;
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(chunkSize),
+          'Content-Type': mime,
+          'Cache-Control': 'no-cache',
+        });
+
+        if (isHead) {
+          res.end();
+          return;
+        }
+
+        const stream = createReadStream(fullPath, { start, end });
+        stream.pipe(res);
+        req.on('close', () => {
+          try { stream.destroy(); } catch (_) {}
+        });
+        stream.on('error', () => {
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+          }
+          res.end();
+        });
+        return;
       }
+    }
+
+    // Full content response (200 OK)
+    res.writeHead(200, {
+      'Content-Length': String(totalSize),
+      'Accept-Ranges': 'bytes',
+      'Content-Type': mime,
+      'Cache-Control': 'no-cache',
+    });
+
+    if (isHead) {
+      res.end();
+      return;
+    }
+
+    const stream = createReadStream(fullPath);
+    stream.pipe(res);
+    req.on('close', () => {
+      try { stream.destroy(); } catch (_) {}
+    });
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+      }
+      res.end();
     });
   } catch (err) {
-    return new Response(String(err.message), { status: 500 });
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+    }
+    res.end(String(err.message || err));
   }
-}, 'GET');
+}
 
 // 4. Read preview of a file (Supports Images, Audio, Video, PDF, Office, and Text)
 app.api('/api/file-content', async (data) => {
@@ -564,4 +665,17 @@ app.api('/api/open-native-tab', async (data) => {
   }
 });
 
-app.run();
+const server = await app.run();
+const defaultListeners = server.listeners('request').slice();
+server.removeAllListeners('request');
+
+server.on('request', (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/api/raw-media') {
+    handleRawMedia(req, res, url);
+    return;
+  }
+  for (const listener of defaultListeners) {
+    listener.call(server, req, res);
+  }
+});
