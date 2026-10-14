@@ -510,7 +510,7 @@ app.api('/api/copy-image-to-clipboard', async (data) => {
     // Set Windows OS system clipboard directly via PowerShell
     const normalizedPath = fullPath.replace(/\\/g, '\\\\');
     const psScript = `Add-Type -AssemblyName System.Windows.Forms; $img = [System.Drawing.Image]::FromFile('${normalizedPath}'); [System.Windows.Forms.Clipboard]::SetImage($img); $img.Dispose()`;
-    await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript]);
+    await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', psScript]);
 
     return {
       success: true,

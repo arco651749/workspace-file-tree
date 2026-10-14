@@ -918,43 +918,8 @@ class ImagePreviewStrategy {
       const base64 = mergedCanvas.toDataURL('image/png');
       let copied = false;
 
-      // 1. Primary: Use Sidecar native Windows OS Clipboard API
-      // (Completely bypasses iframe Permissions Policy restriction crbug 414348233)
-      let data = null;
-      try {
-        if (typeof fetchApi === 'function') {
-          data = await fetchApi('/api/copy-image-to-clipboard', {
-            method: 'POST',
-            body: { base64, originalPath: this.fileData?.path }
-          });
-        } else if (window.fetchApi) {
-          data = await window.fetchApi('/api/copy-image-to-clipboard', {
-            method: 'POST',
-            body: { base64, originalPath: this.fileData?.path }
-          });
-        } else if (window.sidecar && window.sidecar.fetch) {
-          const res = await window.sidecar.fetch('/api/copy-image-to-clipboard', {
-            method: 'POST',
-            body: JSON.stringify({ base64, originalPath: this.fileData?.path })
-          });
-          data = await res.json();
-        } else {
-          const res = await fetch('/api/copy-image-to-clipboard', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64, originalPath: this.fileData?.path })
-          });
-          data = await res.json();
-        }
-        if (data && (data.ok || data.success)) {
-          copied = true;
-        }
-      } catch (err) {
-        console.warn('Native clipboard API call failed:', err);
-      }
-
-      // 2. Fallback: Browser Clipboard API if allowed
-      if (!copied && navigator.clipboard && window.ClipboardItem) {
+      // 1. Primary: Browser Clipboard API (Instant, < 10ms, no process startup lag)
+      if (navigator.clipboard && window.ClipboardItem) {
         try {
           const blobPromise = new Promise((resolve, reject) => {
             mergedCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Canvas toBlob failed')), 'image/png');
@@ -962,8 +927,53 @@ class ImagePreviewStrategy {
           const item = new ClipboardItem({ 'image/png': blobPromise });
           await navigator.clipboard.write([item]);
           copied = true;
+
+          // Asynchronously save to local disk in background without blocking UI
+          const saveApi = typeof fetchApi === 'function' ? fetchApi : (window.fetchApi || null);
+          if (saveApi) {
+            saveApi('/api/save-annotated-image', {
+              method: 'POST',
+              body: { base64, originalPath: this.fileData?.path }
+            }).catch(() => {});
+          }
         } catch (browserErr) {
-          console.warn('Browser clipboard.write also failed:', browserErr);
+          console.warn('Browser clipboard.write failed (falling back to native Sidecar):', browserErr);
+        }
+      }
+
+      // 2. Fallback: Sidecar native Windows OS Clipboard API (via PowerShell)
+      if (!copied) {
+        let data = null;
+        try {
+          if (typeof fetchApi === 'function') {
+            data = await fetchApi('/api/copy-image-to-clipboard', {
+              method: 'POST',
+              body: { base64, originalPath: this.fileData?.path }
+            });
+          } else if (window.fetchApi) {
+            data = await window.fetchApi('/api/copy-image-to-clipboard', {
+              method: 'POST',
+              body: { base64, originalPath: this.fileData?.path }
+            });
+          } else if (window.sidecar && window.sidecar.fetch) {
+            const res = await window.sidecar.fetch('/api/copy-image-to-clipboard', {
+              method: 'POST',
+              body: JSON.stringify({ base64, originalPath: this.fileData?.path })
+            });
+            data = await res.json();
+          } else {
+            const res = await fetch('/api/copy-image-to-clipboard', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ base64, originalPath: this.fileData?.path })
+            });
+            data = await res.json();
+          }
+          if (data && (data.ok || data.success)) {
+            copied = true;
+          }
+        } catch (err) {
+          console.warn('Native clipboard API call failed:', err);
         }
       }
 
