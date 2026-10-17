@@ -309,6 +309,12 @@ body {
   border-color: var(--accent-blue);
 }
 
+.tree-actions button.btn-delete:hover {
+  background: #f38ba8;
+  color: #11111b;
+  border-color: #f38ba8;
+}
+
 .tree-children {
   display: flex;
   flex-direction: column;

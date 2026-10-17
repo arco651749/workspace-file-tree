@@ -222,7 +222,7 @@ function handleRawMedia(req, res, url) {
 
     const totalSize = stat.size;
     const ext = extname(fullPath).toLowerCase();
-    const mime = MEDIA_MIMES[ext] || 'application/octet-stream';
+    const mime = MEDIA_MIMES[ext] || IMAGE_MIMES[ext] || 'application/octet-stream';
     const range = req.headers.range;
 
     if (range) {
@@ -324,17 +324,20 @@ app.api('/api/file-content', async (data) => {
     const ext = extname(fullPath).toLowerCase();
     const mime = IMAGE_MIMES[ext];
 
-    // If it's an image, encode to base64 Data URL (up to 10MB)
+    // If it's an image, encode to base64 Data URL (up to 100MB) or provide mediaUrl
     if (mime) {
-      const maxImgBytes = 10 * 1024 * 1024;
+      const relPath = relative(root, fullPath);
+      const mediaUrl = `/api/raw-media?path=${encodeURIComponent(relPath)}&root=${encodeURIComponent(root)}`;
+      const maxImgBytes = 100 * 1024 * 1024;
       if (st.size > maxImgBytes) {
         return {
-          isImage: false,
-          isBinary: true,
+          ext,
+          isImage: true,
+          mediaUrl,
           size: st.size,
           name: basename(fullPath),
-          path: relative(root, fullPath),
-          message: 'Image exceeds 10MB preview limit'
+          path: relPath,
+          message: 'Image exceeds 100MB dataUrl limit, loading via stream'
         };
       }
       const buffer = readFileSync(fullPath);
@@ -343,9 +346,10 @@ app.api('/api/file-content', async (data) => {
         ext,
         isImage: true,
         dataUrl,
+        mediaUrl,
         size: st.size,
         name: basename(fullPath),
-        path: relative(root, fullPath),
+        path: relPath,
       };
     }
 
@@ -662,6 +666,42 @@ app.api('/api/open-native-tab', async (data) => {
     };
   } catch (err) {
     return { error: String(err.message || err) };
+  }
+});
+
+// 9. Send file or directory safely to Windows Recycle Bin
+app.api('/api/delete-to-recycle-bin', async (data) => {
+  const root = resolveRoot(data);
+  const targetPath = data?.fullPath || (data?.path ? resolve(root, data.path) : null);
+  if (!targetPath) return { error: 'No path specified' };
+
+  if (!existsSync(targetPath)) {
+    return { error: `File or directory not found: ${targetPath}` };
+  }
+
+  try {
+    const isDir = statSync(targetPath).isDirectory();
+    const normalizedPath = targetPath.replace(/'/g, "''");
+    const psScript = `Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath '${normalizedPath}' -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('${normalizedPath}', 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('${normalizedPath}', 'OnlyErrorDialogs', 'SendToRecycleBin') }`;
+
+    await execFileAsync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      psScript
+    ]);
+
+    return {
+      success: true,
+      ok: true,
+      path: data.path || relative(root, targetPath),
+      name: basename(targetPath),
+      isDir
+    };
+  } catch (err) {
+    return { error: `Failed to move to Recycle Bin: ${err.message || err}` };
   }
 });
 

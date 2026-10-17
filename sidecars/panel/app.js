@@ -227,9 +227,19 @@ function createTreeNode(item, level = 0) {
       openPreview(item.relPath);
     });
 
+    const btnDelete = document.createElement('button');
+    btnDelete.className = 'btn-delete';
+    btnDelete.innerHTML = '🗑️';
+    btnDelete.title = '移至資源回收桶 (Move to Recycle Bin)';
+    btnDelete.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await deleteItemToRecycleBin(item, wrapper);
+    });
+
     actions.appendChild(btnOpenTab);
     actions.appendChild(btnView);
     actions.appendChild(btnChat);
+    actions.appendChild(btnDelete);
     row.appendChild(actions);
   }
 
@@ -850,7 +860,7 @@ async function init() {
     }
   });
 
-  $('btn-close-preview').addEventListener('click', () => {
+  function closePreview() {
     $('preview-drawer').hidden = true;
     if ($('preview-resizer')) $('preview-resizer').hidden = true;
     if ($('annot-send-popover')) $('annot-send-popover').hidden = true;
@@ -862,7 +872,44 @@ async function init() {
     if (customActions) customActions.innerHTML = '';
     if ($('btn-send-agent')) $('btn-send-agent').hidden = false;
     activePreviewFile = null;
-  });
+  }
+
+  async function deleteItemToRecycleBin(item, wrapper) {
+    const isDir = Boolean(item.isDirectory);
+    const typeText = isDir ? '資料夾' : '檔案';
+    const confirmed = window.confirm(`確定要將${typeText}「${item.name}」移至系統資源回收桶嗎？\n\n（若誤刪可至桌面資源回收桶還原）`);
+    if (!confirmed) return;
+
+    try {
+      showToast(`正在將 ${item.name} 移至資源回收桶...`);
+      const res = await fetchApi('/api/delete-to-recycle-bin', {
+        method: 'POST',
+        body: { path: item.relPath, fullPath: item.fullPath }
+      });
+
+      if (res && (res.success || res.ok)) {
+        showToast(`🗑️ 已將 ${item.name} 移至資源回收桶`);
+        if (activePreviewFile === item.relPath) {
+          closePreview();
+        }
+        selectedItems.delete(item.relPath);
+        if (wrapper) {
+          wrapper.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+          wrapper.style.opacity = '0';
+          wrapper.style.transform = 'translateX(-10px)';
+          setTimeout(() => {
+            wrapper.remove();
+          }, 200);
+        }
+      } else {
+        showToast(`刪除失敗: ${res?.error || '未知錯誤'}`);
+      }
+    } catch (err) {
+      showToast(`刪除失敗: ${err.message}`);
+    }
+  }
+
+  $('btn-close-preview').addEventListener('click', closePreview);
 
   $('btn-send-agent').addEventListener('click', (e) => {
     e.stopPropagation();

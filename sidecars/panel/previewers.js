@@ -539,10 +539,18 @@ class ImagePreviewStrategy {
     const sendAgentBtn = document.getElementById('btn-send-agent');
     if (sendAgentBtn) sendAgentBtn.hidden = true;
 
+    const backBtnHtml = fileData?.videoSource ? `
+      <div class="annot-action-group">
+        <button class="annot-action-btn" id="btn-back-to-video" title="返回原始影片播放畫面" style="color:var(--accent-blue);font-weight:600;">🔙 返回影片 (${fileData.videoSource.timeStr})</button>
+      </div>
+      <div class="annot-divider"></div>
+    ` : '';
+
     // Create Annotation & Zoom Toolbar merged directly into the drawer header bar
     this.toolbarEl = document.createElement('div');
     this.toolbarEl.className = 'annotation-toolbar';
     this.toolbarEl.innerHTML = `
+      ${backBtnHtml}
       <div class="annot-zoom-group">
         <button class="annot-btn active" id="btn-zoom-fit" title="適應視窗大小 (Fit to window)">🔍 適應</button>
         <button class="annot-btn" id="btn-zoom-100" title="原始解析度 100% (1:1 原圖)">1:1</button>
@@ -682,6 +690,15 @@ class ImagePreviewStrategy {
     this.toolbarEl.querySelector('#btn-annot-send')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.openSendPopover();
+    });
+
+    // Back to Video player
+    this.toolbarEl.querySelector('#btn-back-to-video')?.addEventListener('click', async () => {
+      if (this.fileData?.videoSource && window.previewManager && this.container && this.context) {
+        const original = this.fileData.videoSource.originalFileData;
+        original.initialSeekTime = this.fileData.videoSource.currentTime;
+        await window.previewManager.render(this.container, original, this.context);
+      }
     });
   }
 
@@ -979,7 +996,10 @@ class ImagePreviewStrategy {
 
       if (copied) {
         if (typeof showToast === 'function') {
-          showToast('📋 標註圖片已複製到系統剪貼簿！請在對話輸入框按 Ctrl+V 貼上');
+          const toastMsg = this.fileData?.videoSource
+            ? `📋 已複製影片 (${this.fileData.videoSource.timeStr}) 標註截圖！請在對話輸入框按 Ctrl+V 貼上`
+            : '📋 標註圖片已複製到系統剪貼簿！請在對話輸入框按 Ctrl+V 貼上';
+          showToast(toastMsg);
         }
       } else {
         throw new Error('無法寫入系統剪貼簿，請確認系統權限');
@@ -1055,7 +1075,13 @@ class ImagePreviewStrategy {
 
       if (data && (data.fullPath || data.name)) {
         const cleanPath = (data.fullPath || '').replace(/\\/g, '/');
-        let prompt = `Here is the annotated image with my markings on \`${this.fileData.name}\`:\n\n![Annotated Image](file:///${cleanPath})\n[📁 開啟標註圖片原檔](file:///${cleanPath})\n`;
+        let prompt = '';
+        if (this.fileData?.videoSource) {
+          const v = this.fileData.videoSource;
+          prompt = `Here is the annotated video frame captured from \`${v.originalFileData?.name || this.fileData.name}\` at **${v.timeStr}**:\n\n![Annotated Frame](file:///${cleanPath})\n[📁 開啟標註圖片原檔](file:///${cleanPath})\n`;
+        } else {
+          prompt = `Here is the annotated image with my markings on \`${this.fileData.name}\`:\n\n![Annotated Image](file:///${cleanPath})\n[📁 開啟標註圖片原檔](file:///${cleanPath})\n`;
+        }
         if (customMessage) {
           prompt += `\n**使用者說明 / 提問**：\n${customMessage}\n`;
         }
@@ -1792,6 +1818,10 @@ class MediaPreviewStrategy {
     this.name = 'Media Player';
     this.icon = '🎵';
     this.mediaEl = null;
+    this.container = null;
+    this.fileData = null;
+    this.context = null;
+    this.keyHandler = null;
   }
 
   supports(fileData) {
@@ -1800,7 +1830,102 @@ class MediaPreviewStrategy {
     return mediaExts.includes(fileData.ext);
   }
 
+  getActions(fileData, context) {
+    const isVideo = fileData.mediaType === 'video' || ['.mp4', '.webm', '.ogv', '.mov'].includes(fileData.ext);
+    if (!isVideo) return [];
+
+    const group = document.createElement('div');
+    group.className = 'annot-action-group';
+
+    const btnCapture = document.createElement('button');
+    btnCapture.className = 'btn btn-primary';
+    btnCapture.id = 'btn-video-capture';
+    btnCapture.innerHTML = '📸 擷取畫面 (Capture)';
+    btnCapture.title = '擷取當前影格並進入標註與提問模式 (快速鍵: C 或 S)';
+    btnCapture.addEventListener('click', () => {
+      this.captureFrame();
+    });
+
+    group.appendChild(btnCapture);
+    return [group];
+  }
+
+  async captureFrame() {
+    if (!this.mediaEl) return;
+    try {
+      this.mediaEl.pause();
+      const naturalW = this.mediaEl.videoWidth || 1280;
+      const naturalH = this.mediaEl.videoHeight || 720;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = naturalW;
+      canvas.height = naturalH;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(this.mediaEl, 0, 0, naturalW, naturalH);
+      const frameDataUrl = canvas.toDataURL('image/png');
+
+      const curTime = this.mediaEl.currentTime || 0;
+      const mins = Math.floor(curTime / 60);
+      const secs = Math.floor(curTime % 60).toString().padStart(2, '0');
+      const timeStr = `${mins}:${secs}`;
+
+      const snapshotData = {
+        name: `Snapshot_${(this.fileData.name || 'video').replace(/\.[^/.]+$/, '')}_${mins}m${secs}s.png`,
+        path: this.fileData.path,
+        ext: '.png',
+        isImage: true,
+        dataUrl: frameDataUrl,
+        size: Math.round(frameDataUrl.length * 0.75),
+        videoSource: {
+          originalFileData: this.fileData,
+          currentTime: curTime,
+          timeStr: timeStr,
+        }
+      };
+
+      if (window.previewManager && this.container && this.context) {
+        await window.previewManager.render(this.container, snapshotData, this.context);
+        if (typeof showToast === 'function') {
+          showToast(`📸 已擷取 ${timeStr} 影格畫面！可直接進行畫筆標註或發問`);
+        }
+      }
+    } catch (err) {
+      console.error('Frame capture failed:', err);
+      if (typeof showToast === 'function') {
+        showToast(`擷取影格失敗: ${err.message}`);
+      }
+    }
+  }
+
+  setupKeyboardShortcuts() {
+    this.removeKeyboardShortcuts();
+    this.keyHandler = (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
+        return;
+      }
+      const drawer = document.getElementById('preview-drawer');
+      if (!drawer || drawer.hidden || !this.mediaEl) return;
+
+      if (e.key === 'c' || e.key === 'C' || e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        this.captureFrame();
+      }
+    };
+    window.addEventListener('keydown', this.keyHandler);
+  }
+
+  removeKeyboardShortcuts() {
+    if (this.keyHandler) {
+      window.removeEventListener('keydown', this.keyHandler);
+      this.keyHandler = null;
+    }
+  }
+
   render(container, fileData, context) {
+    this.container = container;
+    this.fileData = fileData;
+    this.context = context;
+
     container.innerHTML = '';
     const isVideo = fileData.mediaType === 'video' || ['.mp4', '.webm', '.ogv', '.mov'].includes(fileData.ext);
 
@@ -1825,6 +1950,9 @@ class MediaPreviewStrategy {
         if (context && context.setSizeText) {
           context.setSizeText(`${context.formatSize(fileData.size)} · ${this.mediaEl.videoWidth}×${this.mediaEl.videoHeight} · ${mins}:${secs}`);
         }
+        if (typeof fileData.initialSeekTime === 'number' && fileData.initialSeekTime > 0) {
+          this.mediaEl.currentTime = fileData.initialSeekTime;
+        }
       };
 
       this.mediaEl.onerror = () => {
@@ -1846,6 +1974,7 @@ class MediaPreviewStrategy {
       };
 
       wrapper.appendChild(this.mediaEl);
+      this.setupKeyboardShortcuts();
     } else {
       const card = document.createElement('div');
       card.className = 'media-audio-card';
@@ -1886,6 +2015,7 @@ class MediaPreviewStrategy {
   }
 
   destroy() {
+    this.removeKeyboardShortcuts();
     if (this.mediaEl) {
       try {
         this.mediaEl.pause();
