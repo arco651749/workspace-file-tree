@@ -91,6 +91,24 @@
           <button class="btn btn-primary" id="btn-popover-submit">確認發送</button>
         </div>
       </div>
+    <!-- Custom Recycle Bin Confirmation Modal -->
+    <div id="delete-confirm-modal" class="confirm-modal-overlay" hidden>
+      <div class="confirm-modal-box">
+        <div class="confirm-modal-header">
+          <span class="confirm-modal-icon">🗑️</span>
+          <span class="confirm-modal-title">移至系統資源回收桶</span>
+        </div>
+        <div class="confirm-modal-body">
+          確定要將 <b id="delete-confirm-target" style="color:var(--text-primary); word-break:break-all;"></b> 移至資源回收桶嗎？
+          <div style="font-size:11px; color:var(--text-muted); margin-top:8px; line-height:1.4;">
+            💡 檔案不會被永久抹除，若誤刪隨時可至 Windows 桌面資源回收桶找回還原。
+          </div>
+        </div>
+        <div class="confirm-modal-footer">
+          <button id="btn-delete-cancel" class="btn btn-secondary">取消</button>
+          <button id="btn-delete-confirm" class="btn btn-danger" style="background:#f38ba8; color:#11111b; font-weight:600; border:none; padding:5px 12px; border-radius:4px; cursor:pointer;">移至回收桶</button>
+        </div>
+      </div>
     </div>
 
     <!-- Toast Notification -->
