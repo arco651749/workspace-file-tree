@@ -64,11 +64,9 @@ app.api('/styles.css', () => new Response(readLocal('styles.css'), { contentType
 
 // 1. Get or set current workspace root
 app.api('/api/workspace', (data) => {
-  if (data?.uri || data?.path) {
-    const p = toLocalPath(data.uri || data.path);
-    if (p && existsSync(p)) {
-      activeWorkspaceRoot = p;
-    }
+  const p = toLocalPath(data?.workspaceUri || data?.uri || data?.path || data?.root);
+  if (p && existsSync(p)) {
+    activeWorkspaceRoot = p;
   }
   const root = resolveRoot(data);
   return {
@@ -96,6 +94,12 @@ const IGNORED_NAMES = new Set([
 
 // 2. Read directory tree for workspace
 app.api('/api/tree', (data) => {
+  if (data?.workspaceUri || data?.root) {
+    const p = toLocalPath(data.workspaceUri || data.root);
+    if (p && existsSync(p)) {
+      activeWorkspaceRoot = p;
+    }
+  }
   const root = resolveRoot(data);
   const targetDir = data?.dir ? resolve(root, data.dir) : root;
   const showHidden = Boolean(data?.showHidden);

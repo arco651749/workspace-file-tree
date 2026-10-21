@@ -1,4 +1,4 @@
-const sidecar = window.sidecar;
+const getSidecar = () => window.sidecar;
 const $ = (id) => document.getElementById(id);
 
 let currentWorkspaceUri = null;
@@ -62,7 +62,8 @@ async function fetchApi(path, options = {}) {
     bodyData.root = currentRootPath;
   }
 
-  if (!sidecar) {
+  const s = getSidecar();
+  if (!s || typeof s.fetch !== 'function') {
     const res = await fetch(path, {
       method: options.method || 'GET',
       headers: { 'Content-Type': 'application/json' },
@@ -71,7 +72,7 @@ async function fetchApi(path, options = {}) {
     return res.json();
   }
 
-  const res = await sidecar.fetch(path, {
+  const res = await s.fetch(path, {
     method: options.method || 'GET',
     body: options.method === 'POST' ? JSON.stringify(bodyData) : undefined,
   });
@@ -520,7 +521,12 @@ async function loadRootTree() {
   try {
     const data = await fetchApi('/api/tree', {
       method: 'POST',
-      body: { dir: '', showHidden: showHiddenFiles },
+      body: {
+        dir: '',
+        showHidden: showHiddenFiles,
+        workspaceUri: currentWorkspaceUri,
+        root: currentRootPath || undefined
+      },
     });
 
     if (data.root) {
@@ -673,13 +679,14 @@ async function sendSelectionToAgent(relPath, selectedText, customMessage = '') {
     await navigator.clipboard.writeText(prompt);
   } catch (_) {}
 
-  if (!sidecar || !sidecar.agent) {
+  const agentObj = getSidecar()?.agent;
+  if (!agentObj) {
     showToast('📋 引用內容已複製到剪貼簿（可直接在輸入框 Ctrl+V 貼上）！');
     return;
   }
 
   try {
-    await sidecar.agent.sendMessage(prompt);
+    await agentObj.sendMessage(prompt);
     showToast(customMessage ? '💬 已將引用文字與提問送出至 Agent！' : '💬 已將引用文字送出至 Agent！');
   } catch (err) {
     showToast(`發送失敗: ${err.message}`);
@@ -696,13 +703,14 @@ async function sendFilePathToAgent(relPath, customMessage = '') {
     await navigator.clipboard.writeText(prompt);
   } catch (_) {}
 
-  if (!sidecar || !sidecar.agent) {
+  const agentObj = getSidecar()?.agent;
+  if (!agentObj) {
     showToast(`File path copied: ${relPath}`);
     return;
   }
 
   try {
-    await sidecar.agent.sendMessage(prompt);
+    await agentObj.sendMessage(prompt);
     showToast(customMessage ? `💬 已將檔案與提問送出至 Agent！` : `Sent "${relPath}" to Agent chat!`);
   } catch (err) {
     showToast(`Could not send message: ${err.message}`);
@@ -865,26 +873,63 @@ function handleSearch(filterText) {
 // Initialization
 // ---------------------------------------------------------------------------
 async function init() {
-  if (sidecar && typeof sidecar.getWorkspaceUris === 'function') {
+  const refreshWorkspaceUris = async () => {
+    const s = getSidecar();
+    if (s && typeof s.getWorkspaceUris === 'function') {
+      try {
+        const uris = await s.getWorkspaceUris();
+        if (uris && uris.length > 0 && uris[0] !== currentWorkspaceUri) {
+          currentWorkspaceUri = uris[0];
+          await fetchApi('/api/workspace', {
+            method: 'POST',
+            body: { workspaceUri: currentWorkspaceUri }
+          });
+          loadRootTree();
+        }
+      } catch (e) {
+        console.warn('Could not refresh workspace uris:', e);
+      }
+    }
+  };
+
+  const s = getSidecar();
+  if (s && typeof s.getWorkspaceUris === 'function') {
     try {
-      const uris = await sidecar.getWorkspaceUris();
+      const uris = await s.getWorkspaceUris();
       if (uris && uris.length > 0) {
         currentWorkspaceUri = uris[0];
+        await fetchApi('/api/workspace', {
+          method: 'POST',
+          body: { workspaceUri: currentWorkspaceUri }
+        });
       }
     } catch (e) {
       console.warn('Could not retrieve workspace uris:', e);
     }
 
-    if (typeof sidecar.onWorkspaceChange === 'function') {
-      sidecar.onWorkspaceChange((newUris) => {
+    if (typeof s.onWorkspaceChange === 'function') {
+      s.onWorkspaceChange(async (newUris) => {
         if (newUris && newUris.length > 0) {
           currentWorkspaceUri = newUris[0];
+          await fetchApi('/api/workspace', {
+            method: 'POST',
+            body: { workspaceUri: currentWorkspaceUri }
+          });
           showToast('Workspace switched');
           loadRootTree();
         }
       });
     }
   }
+
+  window.addEventListener('focus', refreshWorkspaceUris);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      refreshWorkspaceUris();
+    }
+  });
+  setTimeout(refreshWorkspaceUris, 150);
+  setTimeout(refreshWorkspaceUris, 600);
 
   $('btn-refresh').addEventListener('click', () => {
     showToast('Refreshing file tree...');
