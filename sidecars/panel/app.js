@@ -467,15 +467,19 @@ function createTreeNode(item, level = 0) {
     // Option A: @relPath
     const textMentions = itemsToDrag.map(it => {
       const p = it.relPath.replace(/\\/g, '/');
-      return p.includes(' ') ? `@\"${p}\"` : `@${p}`;
+      return p.includes(' ') ? `@"${p}"` : `@${p}`;
     }).join(' ');
 
     // URI list: file:///...
+    // Note: URL characters like '#' (hash/fragment) and '?' must be encoded (e.g. encodeURI / encodeURIComponent),
+    // otherwise IDE drop targets interpret '#' as a URL fragment identifier and truncate the file name!
     const uriList = itemsToDrag.map(it => {
       const full = it.fullPath || (currentRootPath ? `${currentRootPath}/${it.relPath}` : it.relPath);
       const normalized = full.replace(/\\/g, '/');
       const clean = normalized.startsWith('/') ? normalized : `/${normalized}`;
-      return `file://${clean}`;
+      // Encode URI components while keeping path slashes intact
+      const encodedPath = clean.split('/').map(segment => encodeURIComponent(segment)).join('/');
+      return `file://${encodedPath}`;
     }).join('\r\n');
 
     e.dataTransfer.setData('text/plain', textMentions);
