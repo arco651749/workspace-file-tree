@@ -63,22 +63,62 @@ async function fetchApi(path, options = {}) {
   }
 
   const s = getSidecar();
-  if (!s || typeof s.fetch !== 'function') {
-    const res = await fetch(path, {
+  if (s && typeof s.fetch === 'function') {
+    const res = await s.fetch(path, {
       method: options.method || 'GET',
-      headers: { 'Content-Type': 'application/json' },
       body: options.method === 'POST' ? JSON.stringify(bodyData) : undefined,
     });
     return res.json();
   }
 
-  const res = await s.fetch(path, {
+  const token = new URLSearchParams(window.location.search).get('token');
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['X-Sidecar-Token'] = token;
+
+  const res = await fetch(path, {
     method: options.method || 'GET',
+    headers,
     body: options.method === 'POST' ? JSON.stringify(bodyData) : undefined,
   });
   return res.json();
 }
 window.fetchApi = fetchApi;
+
+// Helper to reliably resolve the active workspace folder URI
+async function resolveActiveWorkspaceUri() {
+  const s = getSidecar();
+  const convId = s?.conversationId || new URLSearchParams(window.location.search).get('conversationId');
+
+  // 1. Deterministic resolution via Antigravity conversation metadata API
+  if (convId) {
+    try {
+      const metaRes = await fetchApi('/_sidecar/get-conversation-metadata', {
+        method: 'POST',
+        body: { conversationId: convId }
+      });
+      const meta = metaRes?.response?.conversationMetadata?.metadata || metaRes?.response?.conversation_metadata?.metadata;
+      const uri = meta?.workspaces?.[0]?.workspaceFolderAbsoluteUri || meta?.workspaceUris?.[0];
+      if (uri) return uri;
+    } catch (e) {
+      console.warn('Could not resolve workspace from conversation metadata:', e);
+    }
+  }
+
+  // 2. Safe race with sidecar.getWorkspaceUris() with 300ms timeout
+  if (s && typeof s.getWorkspaceUris === 'function') {
+    try {
+      const uris = await Promise.race([
+        s.getWorkspaceUris(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 300))
+      ]);
+      if (uris && uris.length > 0) return uris[0];
+    } catch {
+      // getWorkspaceUris timed out waiting for host push
+    }
+  }
+
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Selection Management
@@ -873,63 +913,49 @@ function handleSearch(filterText) {
 // Initialization
 // ---------------------------------------------------------------------------
 async function init() {
-  const refreshWorkspaceUris = async () => {
-    const s = getSidecar();
-    if (s && typeof s.getWorkspaceUris === 'function') {
-      try {
-        const uris = await s.getWorkspaceUris();
-        if (uris && uris.length > 0 && uris[0] !== currentWorkspaceUri) {
-          currentWorkspaceUri = uris[0];
-          await fetchApi('/api/workspace', {
-            method: 'POST',
-            body: { workspaceUri: currentWorkspaceUri }
-          });
-          loadRootTree();
-        }
-      } catch (e) {
-        console.warn('Could not refresh workspace uris:', e);
-      }
+  const refreshWorkspace = async (forceReload = false) => {
+    const uri = await resolveActiveWorkspaceUri();
+    if (uri && (forceReload || uri !== currentWorkspaceUri)) {
+      currentWorkspaceUri = uri;
+      currentRootPath = '';
+      await fetchApi('/api/workspace', {
+        method: 'POST',
+        body: { workspaceUri: currentWorkspaceUri }
+      });
+      loadRootTree();
     }
   };
 
+  // Immediate initial workspace resolution
+  await refreshWorkspace(true);
+  if (!currentWorkspaceUri) {
+    loadRootTree();
+  }
+
   const s = getSidecar();
-  if (s && typeof s.getWorkspaceUris === 'function') {
-    try {
-      const uris = await s.getWorkspaceUris();
-      if (uris && uris.length > 0) {
-        currentWorkspaceUri = uris[0];
+  if (s && typeof s.onWorkspaceChange === 'function') {
+    s.onWorkspaceChange(async (newUris) => {
+      if (newUris && newUris.length > 0 && newUris[0] !== currentWorkspaceUri) {
+        currentWorkspaceUri = newUris[0];
+        currentRootPath = '';
         await fetchApi('/api/workspace', {
           method: 'POST',
           body: { workspaceUri: currentWorkspaceUri }
         });
+        showToast('Workspace switched');
+        loadRootTree();
       }
-    } catch (e) {
-      console.warn('Could not retrieve workspace uris:', e);
-    }
-
-    if (typeof s.onWorkspaceChange === 'function') {
-      s.onWorkspaceChange(async (newUris) => {
-        if (newUris && newUris.length > 0) {
-          currentWorkspaceUri = newUris[0];
-          await fetchApi('/api/workspace', {
-            method: 'POST',
-            body: { workspaceUri: currentWorkspaceUri }
-          });
-          showToast('Workspace switched');
-          loadRootTree();
-        }
-      });
-    }
+    });
   }
 
-  window.addEventListener('focus', refreshWorkspaceUris);
+  window.addEventListener('focus', () => refreshWorkspace(false));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      refreshWorkspaceUris();
+      refreshWorkspace(false);
     }
   });
-  setTimeout(refreshWorkspaceUris, 150);
-  setTimeout(refreshWorkspaceUris, 600);
+  setTimeout(() => refreshWorkspace(false), 200);
+  setTimeout(() => refreshWorkspace(false), 800);
 
   $('btn-refresh').addEventListener('click', () => {
     showToast('Refreshing file tree...');

@@ -46,13 +46,21 @@ function resolveRoot(data) {
 const app = new SidecarApp();
 
 const readLocal = (name) => readFileSync(join(HERE, name), 'utf8');
+const noCacheResponse = (content, contentType) => new Response(content, {
+  contentType,
+  headers: {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Static Page & Resource Routes
 // ---------------------------------------------------------------------------
-app.page('/', () => readLocal('index.html'));
-app.page('/app.js', () => readLocal('app.js'));
-app.page('/previewers.js', () => readLocal('previewers.js'));
+app.page('/', () => noCacheResponse(readLocal('index.html'), 'text/html'));
+app.page('/app.js', () => noCacheResponse(readLocal('app.js'), 'application/javascript'));
+app.page('/previewers.js', () => noCacheResponse(readLocal('previewers.js'), 'application/javascript'));
 app.page('/highlight.min.js', () => readLocal('highlight.min.js'));
 app.page('/pdf.min.js', () => readLocal('pdf.min.js'));
 app.page('/pdf.worker.min.js', () => readLocal('pdf.worker.min.js'));
