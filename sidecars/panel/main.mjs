@@ -62,6 +62,7 @@ app.page('/', () => noCacheResponse(readLocal('index.html'), 'text/html'));
 app.page('/app.js', () => noCacheResponse(readLocal('app.js'), 'application/javascript'));
 app.page('/previewers.js', () => noCacheResponse(readLocal('previewers.js'), 'application/javascript'));
 app.page('/highlight.min.js', () => readLocal('highlight.min.js'));
+app.page('/pele.global.js', () => noCacheResponse(readLocal('pele.global.js'), 'application/javascript'));
 app.page('/pdf.min.js', () => readLocal('pdf.min.js'));
 app.page('/pdf.worker.min.js', () => readLocal('pdf.worker.min.js'));
 app.api('/styles.css', () => new Response(readLocal('styles.css'), { contentType: 'text/css' }), 'GET');

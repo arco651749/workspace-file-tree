@@ -1464,3 +1464,15 @@ code.hljs {
   background: var(--bg-primary);
 }
 
+
+/* Mermaid diagrams rendered by Pele */
+.md-mermaid {
+  margin: 12px 0; padding: 12px; overflow-x: auto;
+  background: #1e1e2e; border: 1px solid #333; border-radius: 6px;
+}
+.md-mermaid svg { display: block; margin: 0 auto; }
+.md-mermaid .pele {
+  --pele-bg: #1e1e2e; --pele-fg: #e0e0e0; --pele-muted: #a0a0b0;
+  --pele-line: #9aa0b4; --pele-surface: #2a2d3e; --pele-surface-alt: #343850;
+  --pele-border: #4a5070; --pele-accent: #4285f4;
+}

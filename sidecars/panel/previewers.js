@@ -204,6 +204,17 @@ function parseMarkdownToHtml(markdown) {
   // Restore Code Blocks with Syntax Highlighting
   result = result.replace(/<!--CODEBLOCK(\d+)-->/g, (m, idx) => {
     const item = codeBlocks[idx];
+    // Mermaid diagrams: render to SVG via Pele (https://pele.run); fall back to code block on failure
+    if (item.lang.toLowerCase() === 'mermaid' && window.pele) {
+      try {
+        const { svg, width } = window.pele.render(item.rawCode, { fontSize: 12 });
+        // Lock to natural width (never upscale); shrink only when the panel is narrower
+        const scaled = svg.replace('style="', `style="width:${width}px;`);
+        return `<div class="md-mermaid">${scaled}</div>`;
+      } catch (err) {
+        console.warn('[pele] mermaid render failed:', err);
+      }
+    }
     let codeHtml = item.code;
     if (window.hljs && item.lang) {
       try {

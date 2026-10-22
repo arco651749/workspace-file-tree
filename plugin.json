@@ -3,7 +3,7 @@
   "displayName": "Workspace File Tree",
   "description": "Interactive project directory tree and file explorer in the side panel.",
   "logo": "assets/logo.svg",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "suggestedPrompts": [
     "Open workspace file tree",
     "Show project file structure",
