@@ -496,7 +496,7 @@ function createTreeNode(item, level = 0) {
     }
   });
 
-  // Drag and Drop to Chat / Editor
+  // Drag and Drop to Chat / Editor (Antigravity 2.25 plugin:// OOPIF Bridge)
   row.addEventListener('dragstart', (e) => {
     if (!selectedItems.has(item.relPath)) {
       clearSelection();
@@ -505,40 +505,75 @@ function createTreeNode(item, level = 0) {
 
     const itemsToDrag = Array.from(selectedItems.values()).map(v => v.item);
 
-    // Option A: @relPath
-    const textMentions = itemsToDrag.map(it => {
-      const p = it.relPath.replace(/\\/g, '/');
-      return p.includes(' ') ? `@"${p}"` : `@${p}`;
-    }).join(' ');
-
-    // URI list: file:///...
-    // Note: URL characters like '#' (hash/fragment) and '?' must be encoded (e.g. encodeURI / encodeURIComponent),
-    // otherwise IDE drop targets interpret '#' as a URL fragment identifier and truncate the file name!
-    const uriList = itemsToDrag.map(it => {
+    // Build standard file:/// URIs compatible with Antigravity 2.25's XB / UB parser
+    const urisArray = itemsToDrag.map(it => {
       const full = it.fullPath || (currentRootPath ? `${currentRootPath}/${it.relPath}` : it.relPath);
       const normalized = full.replace(/\\/g, '/');
-      const clean = normalized.startsWith('/') ? normalized : `/${normalized}`;
-      // Encode URI components while keeping path slashes intact
-      const encodedPath = clean.split('/').map(segment => encodeURIComponent(segment)).join('/');
-      return `file://${encodedPath}`;
-    }).join('\r\n');
+      const clean = normalized.replace(/^([a-zA-Z]):/, (m, d) => `${d.toLowerCase()}:`);
+      return clean.startsWith('/') ? `file://${clean}` : `file:///${clean}`;
+    });
 
-    e.dataTransfer.setData('text/plain', textMentions);
-    e.dataTransfer.setData('text/uri-list', uriList);
-    e.dataTransfer.effectAllowed = 'copy';
+    const plainPaths = itemsToDrag.map(it => {
+      const full = it.fullPath || (currentRootPath ? `${currentRootPath}/${it.relPath}` : it.relPath);
+      return full.replace(/\\/g, '/');
+    });
 
-    // Ghost drag image badge
+    // Cancel Chromium's broken cross-scheme (plugin:// -> https://127.0.0.1) HTML5 drag
+    // which immediately locks the cursor to 🚫, and hand off to the Parent-Frame Drag Bridge.
+    e.preventDefault();
+
     const count = itemsToDrag.length;
-    const ghost = document.createElement('div');
-    ghost.className = 'drag-ghost-badge';
-    ghost.innerHTML = count > 1 
-      ? `📦 <b>${count}</b> files` 
-      : `${getFileIcon(item.ext, item.isDirectory)} <b>${item.name}</b>`;
-    document.body.appendChild(ghost);
-    e.dataTransfer.setDragImage(ghost, 12, 12);
-    setTimeout(() => ghost.remove(), 0);
+    const label = count > 1
+      ? `📦 ${count} files`
+      : `${getFileIcon(item.ext, item.isDirectory)} ${item.name}`;
 
     row.classList.add('dragging');
+    fetchApi('/api/ensure-drag-bridge', { method: 'POST', body: {} }).catch(() => {});
+
+    try {
+      window.parent.postMessage({
+        type: 'WFT_DRAG_START',
+        uris: urisArray,
+        plainPaths,
+        label,
+        clientX: e.clientX,
+        clientY: e.clientY
+      }, '*');
+    } catch (_) {}
+
+    const onLocalMove = (ev) => {
+      if ((ev.buttons & 1) === 0) {
+        cleanupLocalDrag(ev);
+        return;
+      }
+      try {
+        window.parent.postMessage({
+          type: 'WFT_DRAG_MOVE',
+          clientX: ev.clientX,
+          clientY: ev.clientY,
+          shiftKey: ev.shiftKey
+        }, '*');
+      } catch (_) {}
+    };
+
+    const cleanupLocalDrag = (ev) => {
+      window.removeEventListener('mousemove', onLocalMove, true);
+      window.removeEventListener('mouseup', cleanupLocalDrag, true);
+      row.classList.remove('dragging');
+      if (ev) {
+        try {
+          window.parent.postMessage({
+            type: 'WFT_DRAG_END',
+            clientX: ev.clientX,
+            clientY: ev.clientY,
+            shiftKey: ev.shiftKey
+          }, '*');
+        } catch (_) {}
+      }
+    };
+
+    window.addEventListener('mousemove', onLocalMove, true);
+    window.addEventListener('mouseup', cleanupLocalDrag, true);
   });
 
   row.addEventListener('dragend', () => {
@@ -1098,7 +1133,38 @@ async function init() {
   });
 
   initResizer();
+
+  // Tree-level keyboard shortcuts (Ctrl+C to copy @mentions)
+  document.addEventListener('keydown', async (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+      if (selectedItems.size > 0) {
+        e.preventDefault();
+        const items = Array.from(selectedItems.values()).map(v => v.item);
+        const textMentions = items.map(it => {
+          const p = it.relPath.replace(/\\/g, '/');
+          return p.includes(' ') ? `@"${p}"` : `@${p}`;
+        }).join(' ');
+        try {
+          await navigator.clipboard.writeText(textMentions);
+          showToast(`📋 已複製引用: ${textMentions}`);
+        } catch (_) {
+          try {
+            await fetchApi('/api/copy-text-to-clipboard', {
+              method: 'POST',
+              body: { text: textMentions }
+            });
+            showToast(`📋 已複製引用: ${textMentions}`);
+          } catch (err) {
+            showToast(`複製失敗: ${err.message}`);
+          }
+        }
+      }
+    }
+  });
+
   setupTextSelectionQuote();
+  fetchApi('/api/ensure-drag-bridge', { method: 'POST', body: {} }).catch(() => {});
   loadRootTree();
 }
 

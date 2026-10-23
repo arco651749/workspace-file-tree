@@ -77,6 +77,7 @@ app.api('/api/workspace', (data) => {
   if (p && existsSync(p)) {
     activeWorkspaceRoot = p;
   }
+  ensureMainDragBridge().catch(() => {});
   const root = resolveRoot(data);
   return {
     root,
@@ -681,6 +682,290 @@ app.api('/api/open-native-tab', async (data) => {
     return { error: String(err.message || err) };
   }
 });
+
+// 8b. Inject Parent-Frame Drag Bridge into Antigravity 2.25 main window via CDP
+// Bypasses Chromium's cross-scheme OOPIF (plugin:// -> https://127.0.0.1) HTML5 drag block
+const MAIN_DRAG_BRIDGE_SCRIPT = `(() => {
+  if (window.__wftDragBridgeInstalled === '1.2.4') {
+    return { status: 'already_installed' };
+  }
+  if (window.__wftDragBridgeCleanup) {
+    try { window.__wftDragBridgeCleanup(); } catch {}
+  }
+
+  let activeDrag = null;
+
+  function buildDataTransfer(uris, plainPaths) {
+    const dt = new DataTransfer();
+    const uriJson = JSON.stringify(uris);
+    const uriList = uris.join('\\r\\n');
+    try { dt.setData('ResourceURLs', uriJson); } catch {}
+    try { dt.setData('resourceurls', uriJson); } catch {}
+    try { dt.setData('CodeEditors', uriJson); } catch {}
+    try { dt.setData('application/vnd.code.uri-list', uriList); } catch {}
+    try { dt.setData('text/uri-list', uriList); } catch {}
+    try { dt.setData('text/plain', (plainPaths && plainPaths.length ? plainPaths : uris).join('\\n')); } catch {}
+    return dt;
+  }
+
+  function endActiveDrag(commitDrop, clientX, clientY, shiftKey) {
+    if (!activeDrag) return;
+    const state = activeDrag;
+    activeDrag = null;
+
+    for (const f of state.iframes) {
+      f.style.pointerEvents = state.prevPointerEvents.get(f) || '';
+    }
+    if (state.badge && state.badge.parentNode) {
+      state.badge.parentNode.removeChild(state.badge);
+    }
+    document.body.style.cursor = '';
+
+    const dt = buildDataTransfer(state.uris, state.plainPaths);
+
+    let insideSourceIframe = false;
+    if (state.sourceIframe) {
+      const r = state.sourceIframe.getBoundingClientRect();
+      if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+        insideSourceIframe = true;
+      }
+    }
+
+    if (commitDrop && !insideSourceIframe) {
+      const target = document.elementFromPoint(clientX, clientY) || window;
+      const dropEv = new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        shiftKey: Boolean(shiftKey),
+        dataTransfer: dt
+      });
+      target.dispatchEvent(dropEv);
+    } else {
+      const leaveEv = new DragEvent('dragleave', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 0,
+        clientY: 0,
+        relatedTarget: null,
+        dataTransfer: dt
+      });
+      window.dispatchEvent(leaveEv);
+    }
+
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX, clientY }));
+  }
+
+  function updateDragPosition(clientX, clientY, shiftKey) {
+    if (!activeDrag) return;
+    const { badge, uris, plainPaths, sourceIframe } = activeDrag;
+    if (badge) {
+      badge.style.display = 'flex';
+      badge.style.left = (clientX + 14) + 'px';
+      badge.style.top = (clientY + 14) + 'px';
+    }
+
+    let insideSourceIframe = false;
+    if (sourceIframe) {
+      const r = sourceIframe.getBoundingClientRect();
+      if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+        insideSourceIframe = true;
+      }
+    }
+
+    const dt = buildDataTransfer(uris, plainPaths);
+    if (!insideSourceIframe) {
+      if (!activeDrag.enteredChat) {
+        activeDrag.enteredChat = true;
+        window.dispatchEvent(new DragEvent('dragenter', {
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY,
+          shiftKey: Boolean(shiftKey),
+          dataTransfer: dt
+        }));
+      }
+      const target = document.elementFromPoint(clientX, clientY) || window;
+      target.dispatchEvent(new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        shiftKey: Boolean(shiftKey),
+        dataTransfer: dt
+      }));
+    } else if (activeDrag.enteredChat) {
+      activeDrag.enteredChat = false;
+      window.dispatchEvent(new DragEvent('dragleave', {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        relatedTarget: null,
+        dataTransfer: dt
+      }));
+    }
+  }
+
+  function onWindowMouseMove(e) {
+    if (!activeDrag) return;
+    if ((e.buttons & 1) === 0) {
+      endActiveDrag(true, e.clientX, e.clientY, e.shiftKey);
+      return;
+    }
+    updateDragPosition(e.clientX, e.clientY, e.shiftKey);
+  }
+
+  function onWindowMouseUp(e) {
+    if (!activeDrag) return;
+    endActiveDrag(true, e.clientX, e.clientY, e.shiftKey);
+  }
+
+  function onWindowKeyDown(e) {
+    if (!activeDrag) return;
+    if (e.key === 'Escape') {
+      endActiveDrag(false, 0, 0, false);
+    }
+  }
+
+  function onMessage(e) {
+    const data = e.data;
+    if (!data || typeof data.type !== 'string') return;
+
+    if (data.type === 'WFT_DRAG_START') {
+      if (activeDrag) {
+        endActiveDrag(false, 0, 0, false);
+      }
+
+      const iframes = Array.from(document.querySelectorAll('iframe'));
+      const sourceIframe = iframes.find(f => f.contentWindow === e.source) ||
+        iframes.find(f => (f.src || '').includes('workspace-file-tree')) || null;
+
+      const prevPointerEvents = new Map();
+      for (const f of iframes) {
+        prevPointerEvents.set(f, f.style.pointerEvents || '');
+        f.style.pointerEvents = 'none';
+      }
+
+      const badge = document.createElement('div');
+      badge.style.cssText = [
+        'position:fixed',
+        'z-index:2147483647',
+        'pointer-events:none',
+        'display:none',
+        'align-items:center',
+        'gap:6px',
+        'padding:5px 10px',
+        'border-radius:6px',
+        'background:rgba(24,24,27,0.95)',
+        'color:#f4f4f5',
+        'border:1px solid rgba(99,102,241,0.85)',
+        'box-shadow:0 8px 20px rgba(0,0,0,0.45)',
+        'font-family:system-ui,-apple-system,sans-serif',
+        'font-size:12px',
+        'font-weight:500',
+        'white-space:nowrap'
+      ].join(';');
+      badge.textContent = data.label || '?? File';
+
+      let initX = 0;
+      let initY = 0;
+      if (sourceIframe && typeof data.clientX === 'number' && typeof data.clientY === 'number') {
+        const r = sourceIframe.getBoundingClientRect();
+        initX = r.left + data.clientX;
+        initY = r.top + data.clientY;
+        badge.style.display = 'flex';
+        badge.style.left = (initX + 14) + 'px';
+        badge.style.top = (initY + 14) + 'px';
+      }
+      document.body.appendChild(badge);
+      document.body.style.cursor = 'copy';
+
+      activeDrag = {
+        uris: data.uris || [],
+        plainPaths: data.plainPaths || [],
+        iframes,
+        sourceIframe,
+        prevPointerEvents,
+        badge,
+        enteredChat: false
+      };
+    } else if (data.type === 'WFT_DRAG_MOVE' && activeDrag) {
+      const r = activeDrag.sourceIframe ? activeDrag.sourceIframe.getBoundingClientRect() : { left: 0, top: 0 };
+      updateDragPosition(r.left + (data.clientX || 0), r.top + (data.clientY || 0), data.shiftKey);
+    } else if (data.type === 'WFT_DRAG_END' && activeDrag) {
+      const r = activeDrag.sourceIframe ? activeDrag.sourceIframe.getBoundingClientRect() : { left: 0, top: 0 };
+      endActiveDrag(true, r.left + (data.clientX || 0), r.top + (data.clientY || 0), data.shiftKey);
+    }
+  }
+
+  window.addEventListener('message', onMessage);
+  window.addEventListener('mousemove', onWindowMouseMove, true);
+  window.addEventListener('mouseup', onWindowMouseUp, true);
+  window.addEventListener('keydown', onWindowKeyDown, true);
+
+  window.__wftDragBridgeCleanup = () => {
+    window.removeEventListener('message', onMessage);
+    window.removeEventListener('mousemove', onWindowMouseMove, true);
+    window.removeEventListener('mouseup', onWindowMouseUp, true);
+    window.removeEventListener('keydown', onWindowKeyDown, true);
+  };
+  window.__wftDragBridgeInstalled = '1.2.4';
+  return { status: 'installed' };
+})()`;
+
+async function ensureMainDragBridge() {
+  try {
+    const port = getDevToolsPort();
+    const listRes = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2000) });
+    const list = await listRes.json();
+    const pageTargets = list.filter(t => t.type === 'page' && t.webSocketDebuggerUrl);
+    const results = [];
+    for (const target of pageTargets) {
+      const res = await new Promise((resolve) => {
+        const ws = new WebSocket(target.webSocketDebuggerUrl);
+        const timer = setTimeout(() => {
+          try { ws.close(); } catch {}
+          resolve({ error: 'timeout' });
+        }, 2500);
+        ws.onopen = () => {
+          ws.send(JSON.stringify({
+            id: 202,
+            method: 'Runtime.evaluate',
+            params: { expression: MAIN_DRAG_BRIDGE_SCRIPT, returnByValue: true }
+          }));
+        };
+        ws.onmessage = (ev) => {
+          clearTimeout(timer);
+          try {
+            const parsed = JSON.parse(ev.data);
+            resolve(parsed.result?.result?.value || { ok: true });
+          } catch (e) {
+            resolve({ error: e.message });
+          } finally {
+            try { ws.close(); } catch {}
+          }
+        };
+        ws.onerror = () => {
+          clearTimeout(timer);
+          resolve({ error: 'ws_error' });
+        };
+      });
+      results.push(res);
+    }
+    return { ok: true, results };
+  } catch (err) {
+    return { ok: false, error: String(err.message || err) };
+  }
+}
+
+app.api('/api/ensure-drag-bridge', async () => {
+  return await ensureMainDragBridge();
+});
+
+setTimeout(() => { ensureMainDragBridge().catch(() => {}); }, 800);
 
 // 9. Send file or directory safely to Windows Recycle Bin
 app.api('/api/delete-to-recycle-bin', async (data) => {
