@@ -85,6 +85,20 @@ git clone <repo-url> "%USERPROFILE%\.gemini\config\plugins\workspace-file-tree"
 3. Verify `Workspace File Tree` is enabled.
 4. Toggle the auxiliary side pane to open the file tree!
 
+### 3. Enable Drag & Drop to Chat (Antigravity 2.25+)
+Starting from **Antigravity 2.25**, Chromium blocks native cross-scheme (`plugin://` → `https://127.0.0.1`) HTML5 drag-and-drop. This plugin uses a **Parent-Frame Drag Bridge** via CDP (Chrome DevTools Protocol) to restore drag-and-drop into the chat box.
+
+To enable it, launch Antigravity with `--remote-debugging-port=9222`:
+- **Windows Shortcut**: Right-click your Antigravity shortcut → **Properties** → append `--remote-debugging-port=9222` to the **Target** field:
+  ```text
+  "...\Antigravity.exe" --remote-debugging-port=9222
+  ```
+- **CLI / macOS / Linux**:
+  ```bash
+  antigravity --remote-debugging-port=9222
+  ```
+*(Restart Antigravity after adding the flag. The backend automatically reads `DevToolsActivePort` to connect.)*
+
 ---
 
 ## 🗺️ Roadmap & Planned Features (TODO)
