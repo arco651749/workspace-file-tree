@@ -584,7 +584,10 @@ async function openNativeTab(filePath) {
 
   const listRes = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
   const list = await listRes.json();
-  const pageTarget = list.find(t => t.type === 'page');
+  const pageTarget =
+    list.find(t => t.type === 'page' && t.webSocketDebuggerUrl && /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(t.url || '') && /Antigravity/i.test(t.title || '')) ||
+    list.find(t => t.type === 'page' && t.webSocketDebuggerUrl && /^https:\/\/(127\.0\.0\.1|localhost)/i.test(t.url || '')) ||
+    list.find(t => t.type === 'page' && t.webSocketDebuggerUrl && !(t.url || '').startsWith('data:'));
   if (!pageTarget || !pageTarget.webSocketDebuggerUrl) {
     throw new Error('Antigravity main window target not found in DevTools list');
   }
@@ -686,7 +689,7 @@ app.api('/api/open-native-tab', async (data) => {
 // 8b. Inject Parent-Frame Drag Bridge into Antigravity 2.25 main window via CDP
 // Bypasses Chromium's cross-scheme OOPIF (plugin:// -> https://127.0.0.1) HTML5 drag block
 const MAIN_DRAG_BRIDGE_SCRIPT = `(() => {
-  if (window.__wftDragBridgeInstalled === '1.2.4') {
+  if (window.__wftDragBridgeInstalled === '1.2.5') {
     return { status: 'already_installed' };
   }
   if (window.__wftDragBridgeCleanup) {
@@ -898,6 +901,26 @@ const MAIN_DRAG_BRIDGE_SCRIPT = `(() => {
     } else if (data.type === 'WFT_DRAG_END' && activeDrag) {
       const r = activeDrag.sourceIframe ? activeDrag.sourceIframe.getBoundingClientRect() : { left: 0, top: 0 };
       endActiveDrag(true, r.left + (data.clientX || 0), r.top + (data.clientY || 0), data.shiftKey);
+    } else if (data.type === 'WFT_INSERT_TO_CHAT') {
+      const dt = buildDataTransfer(data.uris || [], data.plainPaths || []);
+      const target =
+        document.querySelector('[aria-label="Message input"][contenteditable="true"]') ||
+        document.querySelector('[contenteditable="true"]') ||
+        document.querySelector('textarea') ||
+        window;
+      let cx = 0;
+      let cy = 0;
+      if (target && typeof target.getBoundingClientRect === 'function') {
+        const rect = target.getBoundingClientRect();
+        cx = rect.left + rect.width / 2;
+        cy = rect.top + rect.height / 2;
+      }
+      window.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, dataTransfer: dt }));
+      target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, dataTransfer: dt }));
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, dataTransfer: dt }));
+      if (target && typeof target.focus === 'function') {
+        target.focus();
+      }
     }
   }
 
@@ -912,7 +935,7 @@ const MAIN_DRAG_BRIDGE_SCRIPT = `(() => {
     window.removeEventListener('mouseup', onWindowMouseUp, true);
     window.removeEventListener('keydown', onWindowKeyDown, true);
   };
-  window.__wftDragBridgeInstalled = '1.2.4';
+  window.__wftDragBridgeInstalled = '1.2.5';
   return { status: 'installed' };
 })()`;
 

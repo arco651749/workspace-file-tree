@@ -366,10 +366,27 @@ function createTreeNode(item, level = 0) {
 
     const btnChat = document.createElement('button');
     btnChat.innerHTML = '💬';
-    btnChat.title = 'Ask Agent about this file';
-    btnChat.addEventListener('click', (e) => {
+    btnChat.title = '加入對話輸入框 (Insert into Chat Input)';
+    btnChat.addEventListener('click', async (e) => {
       e.stopPropagation();
-      sendFilePathToAgent(item.relPath);
+      const full = item.fullPath || (currentRootPath ? `${currentRootPath}/${item.relPath}` : item.relPath);
+      const normalized = full.replace(/\\/g, '/');
+      const clean = normalized.replace(/^([a-zA-Z]):/, (m, d) => `${d.toLowerCase()}:`);
+      const fileUri = clean.startsWith('/') ? `file://${clean}` : `file:///${clean}`;
+      try {
+        await navigator.clipboard.writeText(`@${item.relPath}`);
+      } catch (_) {}
+      await fetchApi('/api/ensure-drag-bridge', { method: 'POST', body: {} }).catch(() => {});
+      try {
+        window.parent.postMessage({
+          type: 'WFT_INSERT_TO_CHAT',
+          uris: [fileUri],
+          plainPaths: [normalized]
+        }, '*');
+        showToast(`💬 已將 "${item.name}" 加入對話輸入框！`);
+      } catch (err) {
+        sendFilePathToAgent(item.relPath);
+      }
     });
 
     const btnView = document.createElement('button');
