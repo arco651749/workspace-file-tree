@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Workspace File Tree</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=1.2.5">
   <script src="/preload.js"></script>
 </head>
 <body>
   <div class="app-layout">
     <!-- Header -->
     <header class="panel-header">
-      <div class="workspace-info" id="workspace-info-box" title="Click to change folder">
+      <div class="workspace-info" id="workspace-info-box" title="Right-click or click 🚀 to open workspace in an external app">
         <span class="folder-badge">📁</span>
         <div class="workspace-text-group">
           <span id="workspace-name" class="workspace-title">Loading...</span>
@@ -19,6 +19,7 @@
         </div>
       </div>
       <div class="header-actions">
+        <button id="btn-open-root-app" class="icon-btn" title="Open Workspace in External App (在外部 App 開啟專案)">🚀</button>
         <button id="btn-change-path" class="icon-btn" title="Specify Custom Folder Path">📂</button>
         <button id="btn-refresh" class="icon-btn" title="Refresh Tree">🔄</button>
         <button id="btn-toggle-hidden" class="icon-btn" title="Toggle Hidden / Ignored Files">👁️</button>
@@ -27,7 +28,7 @@
 
     <!-- Path Input Overlay (Hidden by default) -->
     <div id="path-input-bar" class="path-input-bar" hidden>
-      <input type="text" id="manual-path-input" placeholder="Enter absolute folder path (e.g. D:\MyProject)..." />
+      <input type="text" id="manual-path-input" placeholder="Enter absolute folder path (e.g. /Users/me/project or D:\MyProject)..." />
       <button id="btn-apply-path" class="btn btn-primary">Set</button>
       <button id="btn-cancel-path" class="icon-btn">✕</button>
     </div>
@@ -58,6 +59,7 @@
         </div>
         <div class="drawer-actions">
           <div id="preview-custom-actions" class="preview-custom-actions"></div>
+          <button id="btn-open-external-preview" class="icon-btn" title="Open with External App (使用外部 App 開啟)">🚀</button>
           <button id="btn-open-tab" class="icon-btn" title="在 Antigravity 主分頁開啟 (Open in Native Tab)">↗️</button>
           <button id="btn-send-agent" class="btn btn-primary" title="Ask Agent">💬 Ask</button>
           <button id="btn-close-preview" class="icon-btn">✕</button>
@@ -103,7 +105,7 @@
         <div class="confirm-modal-body">
           確定要將 <b id="delete-confirm-target" style="color:var(--text-primary); word-break:break-all;"></b> 移至資源回收桶嗎？
           <div style="font-size:11px; color:var(--text-muted); margin-top:8px; line-height:1.4;">
-            💡 檔案不會被永久抹除，若誤刪隨時可至 Windows 桌面資源回收桶找回還原。
+            💡 檔案不會被永久抹除，若誤刪隨時可至系統垃圾桶 / 資源回收桶找回還原。
           </div>
         </div>
         <div class="confirm-modal-footer">
@@ -113,6 +115,9 @@
       </div>
     </div>
 
+    <!-- Right-Click Context Menu -->
+    <div id="tree-context-menu" class="context-menu" hidden></div>
+
     <!-- Toast Notification -->
     <div id="toast" class="toast" hidden></div>
   </div>
@@ -121,6 +126,6 @@
   <script src="/pele.global.js"></script>
   <script src="/pdf.min.js"></script>
   <script src="/previewers.js?v=1.2.0"></script>
-  <script src="/app.js?v=1.2.4"></script>
+  <script src="/app.js?v=1.2.5"></script>
 </body>
 </html>

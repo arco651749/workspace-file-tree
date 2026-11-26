@@ -204,6 +204,347 @@ async function openFileInNativeTab(itemOrPath) {
 }
 
 // ---------------------------------------------------------------------------
+// External App Launcher & Right-Click Context Menu (macOS / Windows / Linux)
+// ---------------------------------------------------------------------------
+const CUSTOM_APPS_STORAGE_KEY = 'wft_custom_apps_v1';
+const LAST_APP_STORAGE_KEY = 'wft_last_app_v1';
+
+let availableAppsCache = { platform: '', editors: [], terminals: [], finderIconDataUrl: '', extraIcons: {} };
+
+function loadCustomApps() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_APPS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((a) => a && a.appPath && a.name) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomApp(appEntry) {
+  if (!appEntry?.appPath || !appEntry?.name) return;
+  try {
+    const existing = loadCustomApps().filter((a) => a.appPath !== appEntry.appPath);
+    existing.unshift({ name: appEntry.name, appPath: appEntry.appPath, icon: appEntry.icon || '🚀' });
+    localStorage.setItem(CUSTOM_APPS_STORAGE_KEY, JSON.stringify(existing.slice(0, 8)));
+    if (appEntry.iconDataUrl) {
+      availableAppsCache.extraIcons = { ...(availableAppsCache.extraIcons || {}), [appEntry.appPath]: appEntry.iconDataUrl };
+    }
+  } catch {}
+}
+
+function getLastUsedAppPath() {
+  try {
+    return localStorage.getItem(LAST_APP_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function setLastUsedAppPath(appPath) {
+  if (!appPath) return;
+  try {
+    localStorage.setItem(LAST_APP_STORAGE_KEY, appPath);
+  } catch {}
+}
+
+async function loadAvailableApps() {
+  try {
+    const extraAppPaths = loadCustomApps().map((a) => a.appPath);
+    const data = await fetchApi('/api/available-apps', { method: 'POST', body: { extraAppPaths } });
+    if (data && Array.isArray(data.editors)) {
+      availableAppsCache = data;
+    }
+  } catch (err) {
+    console.warn('Could not load available apps:', err);
+  }
+}
+
+function getMergedEditorApps() {
+  const detected = availableAppsCache.editors || [];
+  const custom = loadCustomApps();
+  const extraIcons = availableAppsCache.extraIcons || {};
+  const seen = new Set();
+  const merged = [];
+
+  for (const app of [...custom, ...detected]) {
+    if (!app?.appPath || seen.has(app.appPath)) continue;
+    seen.add(app.appPath);
+    merged.push({ ...app, iconDataUrl: app.iconDataUrl || extraIcons[app.appPath] || '' });
+  }
+
+  const lastPath = getLastUsedAppPath();
+  if (lastPath) {
+    const idx = merged.findIndex((a) => a.appPath === lastPath);
+    if (idx > 0) {
+      const [picked] = merged.splice(idx, 1);
+      merged.unshift(picked);
+    }
+  }
+  return merged;
+}
+
+async function copyPlainText(text, successMsg) {
+  if (!text) return;
+  let copied = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    }
+  } catch {}
+  if (!copied) {
+    try {
+      const res = await fetchApi('/api/copy-text-to-clipboard', {
+        method: 'POST',
+        body: { text }
+      });
+      if (res && (res.ok || res.success)) copied = true;
+    } catch {}
+  }
+  showToast(copied ? successMsg : '複製失敗：無法存取剪貼簿');
+}
+
+async function openWithExternalApp(itemOrPath, { action = 'app', app = '', label = '' } = {}) {
+  let targetPath = '';
+  let fullPath = '';
+  let displayName = '';
+
+  if (typeof itemOrPath === 'string') {
+    targetPath = itemOrPath;
+    displayName = itemOrPath.split(/[/\\]/).pop() || itemOrPath;
+  } else if (itemOrPath && typeof itemOrPath === 'object') {
+    targetPath = itemOrPath.relPath || '';
+    fullPath = itemOrPath.fullPath || '';
+    displayName = itemOrPath.name || (fullPath || targetPath).split(/[/\\]/).pop() || 'Workspace';
+  }
+
+  try {
+    const res = await fetchApi('/api/open-with-app', {
+      method: 'POST',
+      body: {
+        path: targetPath,
+        fullPath: fullPath || undefined,
+        action,
+        app
+      }
+    });
+
+    if (res?.cancelled) return;
+    if (res && res.success) {
+      if (action === 'choose' && res.appPath && res.appName) {
+        saveCustomApp({ name: res.appName, appPath: res.appPath, icon: '🚀', iconDataUrl: res.iconDataUrl || '' });
+        setLastUsedAppPath(res.appPath);
+        showToast(`Opened ${displayName} in ${res.appName}`);
+      } else if (action === 'app' && app) {
+        setLastUsedAppPath(app);
+        showToast(`Opened ${displayName} in ${label || res.appName || app}`);
+      } else if (action === 'reveal') {
+        const mgr = availableAppsCache.platform === 'darwin' ? 'Finder' : 'File Explorer';
+        showToast(`Revealed ${displayName} in ${mgr}`);
+      } else if (action === 'terminal') {
+        showToast('Opened folder in Terminal');
+      } else {
+        showToast(`Opened ${displayName} with default app`);
+      }
+    } else {
+      showToast(`開啟失敗: ${res?.error || '未知錯誤'}`);
+    }
+  } catch (err) {
+    showToast(`開啟失敗: ${err.message}`);
+  }
+}
+
+function hideContextMenu() {
+  const menu = $('tree-context-menu');
+  if (menu) {
+    menu.hidden = true;
+    menu.innerHTML = '';
+  }
+}
+
+function appendMenuItem(menu, { icon = '', iconDataUrl = '', label, badge = '', danger = false, onClick }) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `context-menu-item${danger ? ' danger' : ''}`;
+
+  const iconEl = document.createElement('span');
+  iconEl.className = 'menu-icon';
+  if (iconDataUrl) {
+    const img = document.createElement('img');
+    img.src = iconDataUrl;
+    img.width = 18;
+    img.height = 18;
+    img.alt = '';
+    iconEl.appendChild(img);
+  } else {
+    iconEl.textContent = icon || '';
+  }
+
+  const labelEl = document.createElement('span');
+  labelEl.className = 'menu-label';
+  labelEl.textContent = label;
+
+  btn.appendChild(iconEl);
+  btn.appendChild(labelEl);
+
+  if (badge) {
+    const badgeEl = document.createElement('span');
+    badgeEl.className = 'menu-badge';
+    badgeEl.textContent = badge;
+    btn.appendChild(badgeEl);
+  }
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideContextMenu();
+    onClick();
+  });
+
+  menu.appendChild(btn);
+}
+
+function appendMenuDivider(menu) {
+  const div = document.createElement('div');
+  div.className = 'context-menu-divider';
+  menu.appendChild(div);
+}
+
+function appendMenuSection(menu, text) {
+  const sec = document.createElement('div');
+  sec.className = 'context-menu-section-label';
+  sec.textContent = text;
+  menu.appendChild(sec);
+}
+
+function showContextMenu(x, y, item, { toggleFolder = null, wrapper = null, isRoot = false } = {}) {
+  const menu = $('tree-context-menu');
+  if (!menu) return;
+
+  const isMac = availableAppsCache.platform === 'darwin';
+  menu.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'context-menu-header';
+  header.textContent = item?.name || currentRootPath || 'Workspace';
+  header.title = item?.fullPath || item?.relPath || currentRootPath || '';
+  menu.appendChild(header);
+
+  if (!isRoot) {
+    if (!item.isDirectory) {
+      appendMenuItem(menu, {
+        icon: '📑',
+        label: '在 Antigravity 主分頁開啟',
+        onClick: () => openFileInNativeTab(item)
+      });
+    } else if (typeof toggleFolder === 'function') {
+      appendMenuItem(menu, {
+        icon: '📂',
+        label: '展開 / 收合資料夾',
+        onClick: () => toggleFolder()
+      });
+    }
+    appendMenuDivider(menu);
+  }
+
+  const editors = getMergedEditorApps();
+  const lastPath = getLastUsedAppPath();
+
+  appendMenuSection(menu, '使用外部 App 開啟 (Open With)');
+  for (const app of editors) {
+    appendMenuItem(menu, {
+      icon: app.icon || '🚀',
+      iconDataUrl: app.iconDataUrl || '',
+      label: `Open in ${app.name}`,
+      badge: app.appPath === lastPath ? 'Recent' : '',
+      onClick: () => openWithExternalApp(item, { action: 'app', app: app.appPath, label: app.name })
+    });
+  }
+
+  if (isMac) {
+    appendMenuItem(menu, {
+      icon: '＋',
+      label: '選擇其他 App 開啟 (Choose App...)',
+      onClick: () => openWithExternalApp(item, { action: 'choose' })
+    });
+  }
+
+  appendMenuItem(menu, {
+    icon: '↗',
+    label: '使用系統預設應用開啟',
+    onClick: () => openWithExternalApp(item, { action: 'default' })
+  });
+
+  appendMenuDivider(menu);
+
+  appendMenuItem(menu, {
+    icon: '🔍',
+    iconDataUrl: availableAppsCache.finderIconDataUrl || '',
+    label: isMac ? '在 Finder 中顯示' : '在檔案總管中顯示 (Reveal)',
+    onClick: () => openWithExternalApp(item, { action: 'reveal' })
+  });
+
+  const terminals = availableAppsCache.terminals || [];
+  const primaryTerm = terminals[0];
+  appendMenuItem(menu, {
+    icon: '⌨️',
+    iconDataUrl: primaryTerm?.iconDataUrl || '',
+    label: primaryTerm ? `在 ${primaryTerm.name} 開啟目錄` : '在終端機開啟所在目錄',
+    onClick: () => openWithExternalApp(item, {
+      action: 'terminal',
+      app: primaryTerm?.appPath || ''
+    })
+  });
+
+  appendMenuDivider(menu);
+
+  const absPath = item?.fullPath || (currentRootPath && item?.relPath ? `${currentRootPath}/${item.relPath}` : currentRootPath || '');
+  if (absPath) {
+    appendMenuItem(menu, {
+      icon: '📋',
+      label: '複製完整路徑 (Copy Full Path)',
+      onClick: () => copyPlainText(absPath, '📋 已複製完整路徑')
+    });
+  }
+
+  if (!isRoot && item?.relPath) {
+    appendMenuItem(menu, {
+      icon: '📎',
+      label: '複製相對路徑 (@引用)',
+      onClick: () => {
+        const cleanRel = item.relPath.replace(/\\/g, '/');
+        const mention = cleanRel.includes(' ') ? `@"${cleanRel}"` : `@${cleanRel}`;
+        copyPlainText(mention, `📋 已複製引用: ${mention}`);
+      }
+    });
+  }
+
+  if (!isRoot && wrapper) {
+    appendMenuDivider(menu);
+    appendMenuItem(menu, {
+      icon: '🗑️',
+      label: isMac ? '移至廢紙簍 (Move to Trash)' : '移至資源回收桶',
+      danger: true,
+      onClick: () => deleteItemToRecycleBin(item, wrapper)
+    });
+  }
+
+  menu.hidden = false;
+  const menuRect = menu.getBoundingClientRect();
+  const margin = 8;
+  let left = x;
+  let top = y;
+  if (left + menuRect.width > window.innerWidth - margin) {
+    left = Math.max(margin, window.innerWidth - menuRect.width - margin);
+  }
+  if (top + menuRect.height > window.innerHeight - margin) {
+    top = Math.max(margin, window.innerHeight - menuRect.height - margin);
+  }
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+// ---------------------------------------------------------------------------
 // Preview Close & Recycle Bin Operations (Module Top-Level Scope)
 // ---------------------------------------------------------------------------
 function closePreview() {
@@ -489,17 +830,13 @@ function createTreeNode(item, level = 0) {
     }
   });
 
-  // Right-click: Open directly in Antigravity's native preview tab
+  // Right-click: Open cross-platform context menu (Native Tab, Open in External App, Finder/Explorer, Terminal)
   row.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!item.isDirectory) {
-      clearSelection();
-      selectItem(item, row, false);
-      openFileInNativeTab(item);
-    } else {
-      toggleFolder();
-    }
+    clearSelection();
+    selectItem(item, row, false);
+    showContextMenu(e.clientX, e.clientY, item, { toggleFolder, wrapper });
   });
 
   // Double-click: Open in Antigravity's native preview tab
@@ -1099,6 +1436,54 @@ async function init() {
     }
   });
 
+  $('btn-open-external-preview')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!activePreviewFile) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const fullPath = currentRootPath ? `${currentRootPath}/${activePreviewFile}` : activePreviewFile;
+    showContextMenu(rect.left, rect.bottom + 4, {
+      name: activePreviewFile.split(/[/\\]/).pop(),
+      relPath: activePreviewFile,
+      fullPath,
+      isDirectory: false
+    });
+  });
+
+  const openRootMenuAt = (x, y) => {
+    if (!currentRootPath) return;
+    const rootName = $('workspace-name')?.textContent || currentRootPath.split(/[/\\]/).pop() || 'Workspace';
+    showContextMenu(x, y, {
+      name: rootName,
+      relPath: '',
+      fullPath: currentRootPath,
+      isDirectory: true
+    }, { isRoot: true });
+  };
+
+  $('btn-open-root-app')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    openRootMenuAt(rect.left, rect.bottom + 4);
+  });
+
+  $('workspace-info-box')?.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openRootMenuAt(e.clientX, e.clientY);
+  });
+
+  document.addEventListener('click', (e) => {
+    const menu = $('tree-context-menu');
+    if (menu && !menu.hidden && !menu.contains(e.target)) {
+      hideContextMenu();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideContextMenu();
+  });
+  window.addEventListener('blur', hideContextMenu);
+  $('tree-viewport')?.addEventListener('scroll', hideContextMenu);
+
   $('btn-close-preview').addEventListener('click', closePreview);
 
   $('btn-send-agent').addEventListener('click', (e) => {
@@ -1181,6 +1566,7 @@ async function init() {
   });
 
   setupTextSelectionQuote();
+  loadAvailableApps();
   fetchApi('/api/ensure-drag-bridge', { method: 'POST', body: {} }).catch(() => {});
   loadRootTree();
 }

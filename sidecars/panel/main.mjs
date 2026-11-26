@@ -1,12 +1,28 @@
 import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync, createReadStream } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, extname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { SidecarApp, Response } from 'sidecar_sdk';
 
 const execFileAsync = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
+const USER_HOME = homedir();
+
+function pipeToCommand(cmd, args, input) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', rejectPromise);
+    child.on('close', (code) => {
+      if (code === 0) resolvePromise();
+      else rejectPromise(new Error(stderr.trim() || `${cmd} exited with code ${code}`));
+    });
+    child.stdin.end(input, 'utf8');
+  });
+}
 
 // Convert file:// URI or raw Windows/POSIX path to local filesystem path
 function toLocalPath(uriOrPath) {
@@ -504,7 +520,7 @@ app.api('/api/save-annotated-image', (data) => {
   }
 });
 
-// 6. Copy annotated image natively to Windows OS clipboard
+// 6. Copy annotated image natively to OS clipboard (Windows / macOS / Linux)
 app.api('/api/copy-image-to-clipboard', async (data) => {
   const root = resolveRoot(data);
   if (!data?.base64) return { error: 'No image data provided' };
@@ -525,10 +541,23 @@ app.api('/api/copy-image-to-clipboard', async (data) => {
 
     writeFileSync(fullPath, buffer);
 
-    // Set Windows OS system clipboard directly via PowerShell
-    const normalizedPath = fullPath.replace(/\\/g, '\\\\');
-    const psScript = `Add-Type -AssemblyName System.Windows.Forms; $img = [System.Drawing.Image]::FromFile('${normalizedPath}'); [System.Windows.Forms.Clipboard]::SetImage($img); $img.Dispose()`;
-    await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', psScript]);
+    if (process.platform === 'darwin') {
+      await execFileAsync('/usr/bin/osascript', [
+        '-e',
+        'on run argv',
+        '-e',
+        'set the clipboard to (read (POSIX file (item 1 of argv)) as «class PNGf»)',
+        '-e',
+        'end run',
+        fullPath
+      ]);
+    } else if (process.platform === 'win32') {
+      const normalizedPath = fullPath.replace(/\\/g, '\\\\');
+      const psScript = `Add-Type -AssemblyName System.Windows.Forms; $img = [System.Drawing.Image]::FromFile('${normalizedPath}'); [System.Windows.Forms.Clipboard]::SetImage($img); $img.Dispose()`;
+      await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', psScript]);
+    } else {
+      await execFileAsync('xclip', ['-selection', 'clipboard', '-t', 'image/png', '-i', fullPath]);
+    }
 
     return {
       success: true,
@@ -542,13 +571,23 @@ app.api('/api/copy-image-to-clipboard', async (data) => {
   }
 });
 
-// 7. Copy text snippet natively to Windows OS clipboard
+// 7. Copy text snippet natively to OS clipboard (Windows / macOS / Linux)
 app.api('/api/copy-text-to-clipboard', async (data) => {
   if (!data?.text) return { error: 'No text provided' };
   try {
-    const encoded = Buffer.from(data.text, 'utf8').toString('base64');
-    const psScript = `[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encoded}')) | Set-Clipboard`;
-    await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript]);
+    if (process.platform === 'darwin') {
+      await pipeToCommand('/usr/bin/pbcopy', [], data.text);
+    } else if (process.platform === 'win32') {
+      const encoded = Buffer.from(data.text, 'utf8').toString('base64');
+      const psScript = `[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encoded}')) | Set-Clipboard`;
+      await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript]);
+    } else {
+      try {
+        await pipeToCommand('wl-copy', [], data.text);
+      } catch {
+        await pipeToCommand('xclip', ['-selection', 'clipboard'], data.text);
+      }
+    }
     return { success: true, ok: true };
   } catch (err) {
     return { error: String(err.message || err) };
@@ -557,10 +596,19 @@ app.api('/api/copy-text-to-clipboard', async (data) => {
 
 // 8. Open file directly in Antigravity's native preview tab via CDP
 function getDevToolsPort() {
-  const candidates = [
-    process.env.APPDATA ? join(process.env.APPDATA, 'Antigravity', 'DevToolsActivePort') : null,
-    process.env.USERPROFILE ? join(process.env.USERPROFILE, 'AppData', 'Roaming', 'Antigravity', 'DevToolsActivePort') : null,
-  ].filter(Boolean);
+  const envPort = parseInt(process.env.AG_CDP_PORT || '', 10);
+  if (envPort > 0 && envPort < 65536) return envPort;
+
+  const candidates = [];
+  if (process.platform === 'darwin') {
+    candidates.push(join(USER_HOME, 'Library', 'Application Support', 'Antigravity', 'DevToolsActivePort'));
+  } else if (process.platform === 'win32') {
+    if (process.env.APPDATA) candidates.push(join(process.env.APPDATA, 'Antigravity', 'DevToolsActivePort'));
+    if (process.env.USERPROFILE) candidates.push(join(process.env.USERPROFILE, 'AppData', 'Roaming', 'Antigravity', 'DevToolsActivePort'));
+  } else {
+    if (process.env.XDG_CONFIG_HOME) candidates.push(join(process.env.XDG_CONFIG_HOME, 'Antigravity', 'DevToolsActivePort'));
+    candidates.push(join(USER_HOME, '.config', 'Antigravity', 'DevToolsActivePort'));
+  }
 
   for (const p of candidates) {
     if (existsSync(p)) {
@@ -990,7 +1038,7 @@ app.api('/api/ensure-drag-bridge', async () => {
 
 setTimeout(() => { ensureMainDragBridge().catch(() => {}); }, 800);
 
-// 9. Send file or directory safely to Windows Recycle Bin
+// 9. Send file or directory safely to System Trash / Recycle Bin (Windows / macOS / Linux)
 app.api('/api/delete-to-recycle-bin', async (data) => {
   const root = resolveRoot(data);
   const targetPath = data?.fullPath || (data?.path ? resolve(root, data.path) : null);
@@ -1002,17 +1050,30 @@ app.api('/api/delete-to-recycle-bin', async (data) => {
 
   try {
     const isDir = statSync(targetPath).isDirectory();
-    const normalizedPath = targetPath.replace(/'/g, "''");
-    const psScript = `Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath '${normalizedPath}' -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('${normalizedPath}', 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('${normalizedPath}', 'OnlyErrorDialogs', 'SendToRecycleBin') }`;
-
-    await execFileAsync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-Command',
-      psScript
-    ]);
+    if (process.platform === 'darwin') {
+      await execFileAsync('/usr/bin/osascript', [
+        '-e',
+        'on run argv',
+        '-e',
+        'tell application "Finder" to delete POSIX file (item 1 of argv)',
+        '-e',
+        'end run',
+        targetPath
+      ]);
+    } else if (process.platform === 'win32') {
+      const normalizedPath = targetPath.replace(/'/g, "''");
+      const psScript = `Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath '${normalizedPath}' -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('${normalizedPath}', 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('${normalizedPath}', 'OnlyErrorDialogs', 'SendToRecycleBin') }`;
+      await execFileAsync('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        psScript
+      ]);
+    } else {
+      await execFileAsync('gio', ['trash', targetPath]);
+    }
 
     return {
       success: true,
@@ -1022,7 +1083,303 @@ app.api('/api/delete-to-recycle-bin', async (data) => {
       isDir
     };
   } catch (err) {
-    return { error: `Failed to move to Recycle Bin: ${err.message || err}` };
+    return { error: `Failed to move to Trash / Recycle Bin: ${err.message || err}` };
+  }
+});
+
+// 10. Detect installed external apps (Editors / IDEs / Terminals) & extract real macOS app icons
+const KNOWN_MAC_EDITORS = [
+  { id: 'vscode', name: 'Visual Studio Code', icon: '💻', paths: ['/Applications/Visual Studio Code.app', '~/Applications/Visual Studio Code.app'] },
+  { id: 'cursor', name: 'Cursor', icon: '⚡', paths: ['/Applications/Cursor.app', '~/Applications/Cursor.app'] },
+  { id: 'windsurf', name: 'Windsurf', icon: '🌊', paths: ['/Applications/Windsurf.app', '~/Applications/Windsurf.app'] },
+  { id: 'zed', name: 'Zed', icon: '⚡', paths: ['/Applications/Zed.app', '~/Applications/Zed.app'] },
+  { id: 'trae', name: 'Trae', icon: '🧩', paths: ['/Applications/Trae.app', '~/Applications/Trae.app'] },
+  { id: 'kiro', name: 'Kiro', icon: '👻', paths: ['/Applications/Kiro.app', '~/Applications/Kiro.app'] },
+  { id: 'clion', name: 'CLion', icon: '⚙️', paths: ['/Applications/CLion.app', '~/Applications/CLion.app'] },
+  { id: 'xcode', name: 'Xcode', icon: '🛠️', paths: ['/Applications/Xcode.app'] },
+  { id: 'sublime', name: 'Sublime Text', icon: '📝', paths: ['/Applications/Sublime Text.app', '~/Applications/Sublime Text.app'] },
+  { id: 'idea', name: 'IntelliJ IDEA', icon: '☕', paths: ['/Applications/IntelliJ IDEA.app', '/Applications/IntelliJ IDEA CE.app'] },
+  { id: 'pycharm', name: 'PyCharm', icon: '🐍', paths: ['/Applications/PyCharm.app', '/Applications/PyCharm CE.app'] },
+  { id: 'webstorm', name: 'WebStorm', icon: '🌐', paths: ['/Applications/WebStorm.app'] },
+  { id: 'android-studio', name: 'Android Studio', icon: '📱', paths: ['/Applications/Android Studio.app'] },
+];
+
+const KNOWN_MAC_TERMINALS = [
+  { id: 'ghostty', name: 'Ghostty', icon: '👻', paths: ['/Applications/Ghostty.app', '~/Applications/Ghostty.app'] },
+  { id: 'iterm', name: 'iTerm', icon: '⌨️', paths: ['/Applications/iTerm.app', '~/Applications/iTerm.app'] },
+  { id: 'warp', name: 'Warp', icon: '⌨️', paths: ['/Applications/Warp.app', '~/Applications/Warp.app'] },
+  { id: 'terminal', name: 'Terminal', icon: '⌨️', paths: ['/System/Applications/Utilities/Terminal.app'] },
+];
+
+const KNOWN_WIN_EDITORS = [
+  {
+    id: 'vscode',
+    name: 'Visual Studio Code',
+    icon: '💻',
+    paths: [
+      process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Programs', 'Microsoft VS Code', 'Code.exe') : '',
+      'C:\\Program Files\\Microsoft VS Code\\Code.exe'
+    ].filter(Boolean)
+  },
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    icon: '⚡',
+    paths: [
+      process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Programs', 'cursor', 'Cursor.exe') : ''
+    ].filter(Boolean)
+  },
+  {
+    id: 'windsurf',
+    name: 'Windsurf',
+    icon: '🌊',
+    paths: [
+      process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Programs', 'Windsurf', 'Windsurf.exe') : ''
+    ].filter(Boolean)
+  }
+];
+
+const FINDER_APP_PATH = '/System/Library/CoreServices/Finder.app';
+const ICON_CACHE_DIR = join(tmpdir(), 'workspace-file-tree-app-icons');
+const iconMemCache = new Map();
+
+const JXA_EXTRACT_MAC_ICONS = `
+ObjC.import('AppKit');
+ObjC.import('Foundation');
+function run(argv) {
+  const ws = $.NSWorkspace.sharedWorkspace;
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const p = argv[i];
+    try {
+      const icon = ws.iconForFile(p);
+      if (!icon) continue;
+      const size = $.NSMakeSize(36, 36);
+      const rep = $.NSBitmapImageRep.alloc.initWithBitmapDataPlanesPixelsWidePixelsHighBitsPerSampleSamplesPerPixelHasAlphaIsPlanarColorSpaceNameBytesPerRowBitsPerPixel(
+        null, 36, 36, 8, 4, true, false, $.NSCalibratedRGBColorSpace, 0, 0
+      );
+      rep.setSize(size);
+      $.NSGraphicsContext.saveGraphicsState;
+      const ctx = $.NSGraphicsContext.graphicsContextWithBitmapImageRep(rep);
+      $.NSGraphicsContext.setCurrentContext(ctx);
+      ctx.setImageInterpolation($.NSImageInterpolationHigh);
+      icon.drawInRectFromRectOperationFraction(
+        $.NSMakeRect(0, 0, 36, 36),
+        $.NSZeroRect,
+        $.NSCompositingOperationSourceOver,
+        1.0
+      );
+      $.NSGraphicsContext.restoreGraphicsState;
+      const pngData = rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({}));
+      const b64 = ObjC.unwrap(pngData.base64EncodedStringWithOptions(0));
+      if (b64) out[p] = 'data:image/png;base64,' + b64;
+    } catch (e) {}
+  }
+  return JSON.stringify(out);
+}
+`;
+
+function hashAppKey(p) {
+  let h = 2166136261;
+  for (let i = 0; i < p.length; i++) {
+    h ^= p.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+async function resolveMacAppIcons(appPaths) {
+  const unique = [...new Set((appPaths || []).filter((p) => typeof p === 'string' && p && existsSync(p)))];
+  const result = {};
+  const missing = [];
+
+  for (const p of unique) {
+    if (iconMemCache.has(p)) {
+      result[p] = iconMemCache.get(p);
+      continue;
+    }
+    const cacheFile = join(ICON_CACHE_DIR, `${hashAppKey(p)}.png`);
+    try {
+      if (existsSync(cacheFile)) {
+        const dataUrl = `data:image/png;base64,${readFileSync(cacheFile).toString('base64')}`;
+        iconMemCache.set(p, dataUrl);
+        result[p] = dataUrl;
+        continue;
+      }
+    } catch {}
+    missing.push(p);
+  }
+
+  if (missing.length > 0 && process.platform === 'darwin') {
+    try {
+      const { stdout } = await execFileAsync(
+        '/usr/bin/osascript',
+        ['-l', 'JavaScript', '-e', JXA_EXTRACT_MAC_ICONS, ...missing],
+        { timeout: 8000, maxBuffer: 8 * 1024 * 1024 }
+      );
+      const extracted = JSON.parse(stdout.trim() || '{}');
+      mkdirSync(ICON_CACHE_DIR, { recursive: true });
+      for (const [p, dataUrl] of Object.entries(extracted)) {
+        if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/png;base64,')) {
+          iconMemCache.set(p, dataUrl);
+          result[p] = dataUrl;
+          try {
+            writeFileSync(
+              join(ICON_CACHE_DIR, `${hashAppKey(p)}.png`),
+              Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64')
+            );
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  return result;
+}
+
+function expandTildePath(p) {
+  return p.startsWith('~/') ? join(USER_HOME, p.slice(2)) : p;
+}
+
+function detectInstalledApps(catalog) {
+  const found = [];
+  for (const entry of catalog) {
+    for (const rawPath of entry.paths) {
+      const resolved = expandTildePath(rawPath);
+      if (existsSync(resolved)) {
+        found.push({
+          id: entry.id,
+          name: entry.name,
+          icon: entry.icon,
+          appPath: resolved
+        });
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+app.api('/api/available-apps', async (data) => {
+  if (process.platform === 'darwin') {
+    const editors = detectInstalledApps(KNOWN_MAC_EDITORS);
+    const terminals = detectInstalledApps(KNOWN_MAC_TERMINALS);
+    const extraPaths = Array.isArray(data?.extraAppPaths) ? data.extraAppPaths : [];
+    const icons = await resolveMacAppIcons([
+      ...editors.map((e) => e.appPath),
+      ...terminals.map((t) => t.appPath),
+      FINDER_APP_PATH,
+      ...extraPaths
+    ]);
+    return {
+      platform: 'darwin',
+      editors: editors.map((e) => ({ ...e, iconDataUrl: icons[e.appPath] || '' })),
+      terminals: terminals.map((t) => ({ ...t, iconDataUrl: icons[t.appPath] || '' })),
+      finderIconDataUrl: icons[FINDER_APP_PATH] || '',
+      extraIcons: icons
+    };
+  }
+  if (process.platform === 'win32') {
+    return {
+      platform: 'win32',
+      editors: detectInstalledApps(KNOWN_WIN_EDITORS),
+      terminals: [],
+      finderIconDataUrl: '',
+      extraIcons: {}
+    };
+  }
+  return {
+    platform: process.platform,
+    editors: [],
+    terminals: [],
+    finderIconDataUrl: '',
+    extraIcons: {}
+  };
+});
+
+// 11. Open file or directory in external App, Finder/Explorer, Terminal, or System Default
+app.api('/api/open-with-app', async (data) => {
+  const root = resolveRoot(data);
+  const targetPath = data?.fullPath || (data?.path ? resolve(root, data.path) : root);
+  if (!targetPath || !existsSync(targetPath)) {
+    return { error: `Path not found: ${targetPath || '(empty)'}` };
+  }
+
+  const action = data?.action || 'app';
+  const appSpec = typeof data?.app === 'string' ? data.app.trim() : '';
+
+  try {
+    if (process.platform === 'darwin') {
+      if (action === 'reveal') {
+        await execFileAsync('/usr/bin/open', ['-R', targetPath]);
+        return { success: true, action: 'reveal', targetPath };
+      }
+      if (action === 'default') {
+        await execFileAsync('/usr/bin/open', [targetPath]);
+        return { success: true, action: 'default', targetPath };
+      }
+      if (action === 'terminal') {
+        const dirPath = statSync(targetPath).isDirectory() ? targetPath : dirname(targetPath);
+        const termApp = appSpec || '/System/Applications/Utilities/Terminal.app';
+        await execFileAsync('/usr/bin/open', ['-a', termApp, dirPath]);
+        return { success: true, action: 'terminal', appPath: termApp, targetPath: dirPath };
+      }
+      if (action === 'choose') {
+        let chosenPath = '';
+        try {
+          const { stdout } = await execFileAsync('/usr/bin/osascript', [
+            '-e',
+            'POSIX path of (choose file of type {"com.apple.application-bundle"} default location (POSIX file "/Applications") with prompt "Choose an application to open this item")'
+          ]);
+          chosenPath = stdout.trim().replace(/\/+$/, '');
+        } catch (pickErr) {
+          const msg = String(pickErr?.stderr || pickErr?.message || '');
+          if (msg.includes('-128') || msg.toLowerCase().includes('cancel')) {
+            return { cancelled: true };
+          }
+          throw pickErr;
+        }
+        if (!chosenPath) return { cancelled: true };
+        await execFileAsync('/usr/bin/open', ['-a', chosenPath, targetPath]);
+        const appName = basename(chosenPath).replace(/\.app$/i, '');
+        const icons = await resolveMacAppIcons([chosenPath]);
+        return { success: true, action: 'choose', appPath: chosenPath, appName, iconDataUrl: icons[chosenPath] || '', targetPath };
+      }
+
+      if (!appSpec) return { error: 'No target application specified' };
+      await execFileAsync('/usr/bin/open', ['-a', appSpec, targetPath]);
+      const appName = basename(appSpec).replace(/\.app$/i, '');
+      return { success: true, action: 'app', appPath: appSpec, appName, targetPath };
+    }
+
+    if (process.platform === 'win32') {
+      if (action === 'reveal') {
+        await execFileAsync('explorer.exe', ['/select,', targetPath]);
+        return { success: true, action: 'reveal', targetPath };
+      }
+      if (action === 'terminal') {
+        const dirPath = statSync(targetPath).isDirectory() ? targetPath : dirname(targetPath);
+        const child = spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', `cd /d "${dirPath}"`], { detached: true, stdio: 'ignore', windowsHide: true });
+        child.unref?.();
+        return { success: true, action: 'terminal', targetPath: dirPath };
+      }
+      if (action === 'default' || !appSpec) {
+        await execFileAsync('cmd.exe', ['/c', 'start', '', targetPath]);
+        return { success: true, action: 'default', targetPath };
+      }
+      const child = spawn(appSpec, [targetPath], { detached: true, stdio: 'ignore', windowsHide: true });
+      child.unref?.();
+      return { success: true, action: 'app', appPath: appSpec, appName: basename(appSpec), targetPath };
+    }
+
+    // Linux fallback
+    const openTarget = action === 'reveal' || action === 'terminal'
+      ? (statSync(targetPath).isDirectory() ? targetPath : dirname(targetPath))
+      : targetPath;
+    await execFileAsync('xdg-open', [openTarget]);
+    return { success: true, action, targetPath: openTarget };
+  } catch (err) {
+    return { error: `Failed to open: ${err?.stderr?.trim() || err?.message || err}` };
   }
 });
 
