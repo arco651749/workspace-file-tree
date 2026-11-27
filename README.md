@@ -8,11 +8,10 @@ An interactive, feature-rich Project File Tree Sidebar extension for **ANTIGRAVI
 
 ## ✨ Features
 
-- 📑 **Native Tab Integration (Antigravity 2.22+)**:
-  - **Right-Click**: Right-click any file in the tree to immediately open it in Antigravity's built-in native preview tab!
-  - **Double-Click**: Standard IDE muscle-memory double-click to open in native tab.
-  - **Hover Action (`↗️`) & Header Button**: Dedicated one-click trigger buttons in tree rows and preview drawer.
-  - Automatically loads the native tool tailored for each file type: **Markdown Viewer** (Preview/Raw), **Image Viewer** (region commenting), or **Monaco Editor**.
+- 📑 **Native Tab Integration & Right-Click Context Menu (Antigravity 2.22+)**:
+  - **Double-Click / Hover Action (`↗️`)**: Open any file directly in Antigravity's built-in native preview tab (**Markdown Viewer**, **Image Viewer**, or **Monaco Editor**).
+  - **Right-Click Context Menu (Cross-Platform)**: Open files or folders in external editors/IDEs (auto-detects installed apps such as VS Code, Cursor, Windsurf, Zed, CLion, Xcode, JetBrains IDEs, etc., with native macOS app icons via AppKit), choose any custom macOS `.app`, reveal in **Finder / File Explorer**, open in **Terminal**, copy full/`@rel` path, or safely move to **Trash / Recycle Bin**.
+  - **macOS Full Compatibility**: Native support for macOS `DevToolsActivePort` discovery (`~/Library/Application Support/Antigravity/DevToolsActivePort`), macOS Trash (`Finder`), and native OS text/image clipboard (`pbcopy` / `osascript`).
 - 💬 **Ask Agent & Selection Quote**:
   - Inline prompt popover for asking the AI agent about files, image annotations, or quoted text snippets.
   - Native OS clipboard integration (`📋 Ctrl + C, V`) for instant paste into chat.
@@ -21,7 +20,7 @@ An interactive, feature-rich Project File Tree Sidebar extension for **ANTIGRAVI
 - 👁️ **Hidden File Filtering**: Quickly toggle visibility of dotfiles (`.git`, `.vscode`, etc.) and common ignore patterns.
 - 🖼️ **Dual Preview Drawer (Split Pane)**:
   - **Code & Text Preview**: View file contents with syntax fonts and size badges.
-  - **Image Preview**: Supports PNG, JPG, JPEG, GIF, SVG, WebP, ICO, and BMP with transparent checkerboard background and live dimension resolution (`W×H px`).
+  - **Image Preview & Multi-Image Gallery Switching**: Supports PNG, JPG, JPEG, GIF, SVG, WebP, ICO, and BMP with transparent checkerboard background and live dimension resolution (`W×H px`). When previewing images in a folder with 2+ images (or opening uploaded multi-image attachments in Antigravity chat via the CDP bridge), switch seamlessly left/right using `‹` / `›` buttons or `←` / `→` arrow keys without closing and reopening.
   - **Draggable Resizer**: Seamlessly resize the preview pane up and down without obscuring the file tree's scrollbar.
 - 🎯 **Multi-Selection**:
   - `Click`: Single select and preview.
@@ -93,7 +92,11 @@ To enable it, launch Antigravity with `--remote-debugging-port=9222`:
   ```text
   "...\Antigravity.exe" --remote-debugging-port=9222
   ```
-- **CLI / macOS / Linux**:
+- **macOS**:
+  ```bash
+  open -a "/Applications/Antigravity.app" --args --remote-debugging-port=9222
+  ```
+- **Linux / CLI**:
   ```bash
   antigravity --remote-debugging-port=9222
   ```
