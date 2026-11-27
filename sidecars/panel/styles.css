@@ -1590,3 +1590,21 @@ code.hljs {
   background: var(--border-color);
   margin: 4px 2px;
 }
+
+.preview-img-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  margin-right: 4px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+}
+
+.preview-img-counter {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  padding: 0 3px;
+}

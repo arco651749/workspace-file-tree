@@ -20,7 +20,7 @@ An interactive, feature-rich Project File Tree Sidebar extension for **ANTIGRAVI
 - 👁️ **Hidden File Filtering**: Quickly toggle visibility of dotfiles (`.git`, `.vscode`, etc.) and common ignore patterns.
 - 🖼️ **Dual Preview Drawer (Split Pane)**:
   - **Code & Text Preview**: View file contents with syntax fonts and size badges.
-  - **Image Preview**: Supports PNG, JPG, JPEG, GIF, SVG, WebP, ICO, and BMP with transparent checkerboard background and live dimension resolution (`W×H px`).
+  - **Image Preview & Multi-Image Gallery Switching**: Supports PNG, JPG, JPEG, GIF, SVG, WebP, ICO, and BMP with transparent checkerboard background and live dimension resolution (`W×H px`). When previewing images in a folder with 2+ images (or opening uploaded multi-image attachments in Antigravity chat via the CDP bridge), switch seamlessly left/right using `‹` / `›` buttons or `←` / `→` arrow keys without closing and reopening.
   - **Draggable Resizer**: Seamlessly resize the preview pane up and down without obscuring the file tree's scrollbar.
 - 🎯 **Multi-Selection**:
   - `Click`: Single select and preview.

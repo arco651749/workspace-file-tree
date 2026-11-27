@@ -987,8 +987,81 @@ async function loadRootTree() {
 // ---------------------------------------------------------------------------
 // File Preview (Strategy Pattern Dispatcher) & Agent Action
 // ---------------------------------------------------------------------------
+const IMAGE_EXT_SET = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp']);
+let activeImageSiblings = [];
+let activeImageSiblingIndex = -1;
+
+function getSiblingImagesInTree(relPath) {
+  const norm = String(relPath || '').replace(/\\/g, '/');
+  const lastSlash = norm.lastIndexOf('/');
+  const parentDir = lastSlash >= 0 ? norm.slice(0, lastSlash) : '';
+  const rows = Array.from(document.querySelectorAll('.tree-node-row'));
+  const siblings = [];
+  for (const r of rows) {
+    const it = r.__item;
+    if (!it || it.isDirectory) continue;
+    const ext = (it.ext || '').toLowerCase();
+    if (!IMAGE_EXT_SET.has(ext)) continue;
+    const itNorm = String(it.relPath || '').replace(/\\/g, '/');
+    const itSlash = itNorm.lastIndexOf('/');
+    const itParent = itSlash >= 0 ? itNorm.slice(0, itSlash) : '';
+    if (itParent === parentDir) {
+      siblings.push({ item: it, row: r });
+    }
+  }
+  return siblings;
+}
+
+function navigateDrawerImage(delta) {
+  if (!activeImageSiblings || activeImageSiblings.length < 2 || activeImageSiblingIndex < 0) return;
+  const nextIdx = (activeImageSiblingIndex + delta + activeImageSiblings.length) % activeImageSiblings.length;
+  const target = activeImageSiblings[nextIdx];
+  if (!target?.item) return;
+  clearSelection();
+  selectItem(target.item, target.row, false);
+  target.row?.scrollIntoView?.({ block: 'nearest' });
+  openPreview(target.item.relPath);
+}
+
+function mountDrawerImageNav(relPath, customActions) {
+  if (!customActions) return;
+  const siblings = getSiblingImagesInTree(relPath);
+  const idx = siblings.findIndex((s) => s.item.relPath === relPath);
+  activeImageSiblings = siblings;
+  activeImageSiblingIndex = idx;
+  if (siblings.length < 2 || idx < 0) return;
+
+  const navWrap = document.createElement('div');
+  navWrap.className = 'preview-img-nav';
+
+  const prevBtn = document.createElement('button');
+  prevBtn.type = 'button';
+  prevBtn.className = 'icon-btn';
+  prevBtn.textContent = '‹';
+  prevBtn.title = 'Previous Image (←)';
+  prevBtn.addEventListener('click', (e) => { e.stopPropagation(); navigateDrawerImage(-1); });
+
+  const counter = document.createElement('span');
+  counter.className = 'preview-img-counter';
+  counter.textContent = `${idx + 1}/${siblings.length}`;
+
+  const nextBtn = document.createElement('button');
+  nextBtn.type = 'button';
+  nextBtn.className = 'icon-btn';
+  nextBtn.textContent = '›';
+  nextBtn.title = 'Next Image (→)';
+  nextBtn.addEventListener('click', (e) => { e.stopPropagation(); navigateDrawerImage(1); });
+
+  navWrap.appendChild(prevBtn);
+  navWrap.appendChild(counter);
+  navWrap.appendChild(nextBtn);
+  customActions.prepend(navWrap);
+}
+
 async function openPreview(relPath) {
   activePreviewFile = relPath;
+  activeImageSiblings = [];
+  activeImageSiblingIndex = -1;
   const drawer = $('preview-drawer');
   const resizer = $('preview-resizer');
   const body = $('preview-body');
@@ -1028,6 +1101,7 @@ async function openPreview(relPath) {
       reRender: () => {
         if (window.previewManager && activePreviewFile === relPath) {
           window.previewManager.render(body, data, context);
+          if (data.isImage) mountDrawerImageNav(relPath, customActions);
         }
       }
     };
@@ -1036,6 +1110,10 @@ async function openPreview(relPath) {
       await window.previewManager.render(body, data, context);
     } else {
       body.innerHTML = `<pre class="preview-code-block"><code>${data.content || ''}</code></pre>`;
+    }
+
+    if (data.isImage) {
+      mountDrawerImageNav(relPath, customActions);
     }
   } catch (err) {
     if (activePreviewFile !== relPath) return;
@@ -1536,8 +1614,14 @@ async function init() {
 
   initResizer();
 
-  // Tree-level keyboard shortcuts (Ctrl+C to copy @mentions)
+  // Tree-level keyboard shortcuts (Ctrl+C to copy @mentions, ArrowLeft/ArrowRight to switch images in preview drawer)
   document.addEventListener('keydown', async (e) => {
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !$('preview-drawer')?.hidden && activeImageSiblings.length >= 2) {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
+      e.preventDefault();
+      navigateDrawerImage(e.key === 'ArrowLeft' ? -1 : 1);
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
       if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
       if (selectedItems.size > 0) {
