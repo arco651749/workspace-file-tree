@@ -461,7 +461,7 @@ function showContextMenu(x, y, item, { toggleFolder = null, wrapper = null, isRo
     });
   }
 
-  if (isMac) {
+  if (isMac || availableAppsCache.platform === 'win32') {
     appendMenuItem(menu, {
       icon: '＋',
       label: '選擇其他 App 開啟 (Choose App...)',

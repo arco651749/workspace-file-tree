@@ -1685,8 +1685,14 @@ app.api('/api/open-with-app', async (data) => {
 
     if (process.platform === 'win32') {
       if (action === 'reveal') {
-        await execFileAsync('explorer.exe', ['/select,', targetPath]);
+        const child = spawn('explorer.exe', ['/select,', targetPath], { detached: true, stdio: 'ignore' });
+        child.unref?.();
         return { success: true, action: 'reveal', targetPath };
+      }
+      if (action === 'choose') {
+        const child = spawn('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', targetPath], { detached: true, stdio: 'ignore' });
+        child.unref?.();
+        return { success: true, action: 'choose', targetPath };
       }
       if (action === 'terminal') {
         const dirPath = statSync(targetPath).isDirectory() ? targetPath : dirname(targetPath);
@@ -1695,7 +1701,8 @@ app.api('/api/open-with-app', async (data) => {
         return { success: true, action: 'terminal', targetPath: dirPath };
       }
       if (action === 'default' || !appSpec) {
-        await execFileAsync('cmd.exe', ['/c', 'start', '', targetPath]);
+        const child = spawn('cmd.exe', ['/c', 'start', '', targetPath], { detached: true, stdio: 'ignore', windowsHide: true });
+        child.unref?.();
         return { success: true, action: 'default', targetPath };
       }
       const child = spawn(appSpec, [targetPath], { detached: true, stdio: 'ignore', windowsHide: true });

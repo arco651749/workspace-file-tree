@@ -1,119 +1,129 @@
-# Workspace File Tree for ANTIGRAVITY (2.22.0 以上)
+# Workspace File Tree for Antigravity (Windows & macOS)
 
-An interactive, feature-rich Project File Tree Sidebar extension for **ANTIGRAVITY 2.22.0 以上**.
+面向 **Google Antigravity (2.22.0+)** 的跨平台侧边栏文件树与体验增强插件（支持 **Windows / macOS / Linux**，零 `npm install` 依赖，开箱即用）。
+
+An interactive, cross-platform Project File Tree Sidebar extension for **Antigravity 2.22.0+** (Windows / macOS / Linux) with zero external npm dependencies.
 
 ![Antigravity UI Extension](assets/logo.svg)
 
 ---
 
-## ✨ Features
+## ✨ 核心功能 (Features)
 
-- 📑 **Native Tab Integration & Right-Click Context Menu (Antigravity 2.22+)**:
-  - **Double-Click / Hover Action (`↗️`)**: Open any file directly in Antigravity's built-in native preview tab (**Markdown Viewer**, **Image Viewer**, or **Monaco Editor**).
-  - **Right-Click Context Menu (Cross-Platform)**: Open files or folders in external editors/IDEs (auto-detects installed apps such as VS Code, Cursor, Windsurf, Zed, CLion, Xcode, JetBrains IDEs, etc., with native macOS app icons via AppKit), choose any custom macOS `.app`, reveal in **Finder / File Explorer**, open in **Terminal**, copy full/`@rel` path, or safely move to **Trash / Recycle Bin**.
-  - **macOS Full Compatibility**: Native support for macOS `DevToolsActivePort` discovery (`~/Library/Application Support/Antigravity/DevToolsActivePort`), macOS Trash (`Finder`), and native OS text/image clipboard (`pbcopy` / `osascript`).
-- 💬 **Ask Agent & Selection Quote**:
-  - Inline prompt popover for asking the AI agent about files, image annotations, or quoted text snippets.
-  - Native OS clipboard integration (`📋 Ctrl + C, V`) for instant paste into chat.
-- 📁 **Active Workspace Awareness**: Automatically detects and displays the files in your current project workspace. Supports dynamic root switching (`📂`).
-- 🔍 **Real-time Filter Search**: Instant type-to-filter by file name or relative path.
-- 👁️ **Hidden File Filtering**: Quickly toggle visibility of dotfiles (`.git`, `.vscode`, etc.) and common ignore patterns.
-- 🖼️ **Dual Preview Drawer (Split Pane)**:
-  - **Code & Text Preview**: View file contents with syntax fonts and size badges.
-  - **Image Preview & Multi-Image Gallery Switching**: Supports PNG, JPG, JPEG, GIF, SVG, WebP, ICO, and BMP with transparent checkerboard background and live dimension resolution (`W×H px`). When previewing images in a folder with 2+ images (or opening uploaded multi-image attachments in Antigravity chat via the CDP bridge), switch seamlessly left/right using `‹` / `›` buttons or `←` / `→` arrow keys without closing and reopening.
-  - **Draggable Resizer**: Seamlessly resize the preview pane up and down without obscuring the file tree's scrollbar.
-- 🎯 **Multi-Selection**:
-  - `Click`: Single select and preview.
-  - `Ctrl + Click` / `Cmd + Click`: Free multi-select individual files.
-  - `Shift + Click`: Range select consecutive items.
-- 🚀 **Drag & Drop to Chat (`@` Mentions)**:
-  - Drag one or multiple selected files directly into Antigravity's chat prompt.
-  - Automatically formats dropped items as `@rel/path/to/file` context chips (with automatic space escaping).
-  - Compatible with native Monaco editor drop targets.
+- 📑 **原生标签页与右键外部 App 打开 (Native Tab & Open With External App)**
+  - **双击 / 行内 `↗️`**：直接在 Antigravity 内置原生标签页打开（代码进 Monaco 编辑器、Markdown 进预览、图片进查看器）。
+  - **右键菜单（跨平台）**：右键任意文件/文件夹（或点面板顶栏/预览抽屉的 **`🚀`** 按钮）即可：
+    - 用外部编辑器打开（自动检测本机已装的 **VS Code、Cursor、Windsurf、Zed、CLion、Xcode、JetBrains** 等；macOS 自动通过 AppKit 提取真实应用图标并记住最近常用 App）。
+    - **选择其他 App 打开**：macOS 调用原生应用选择器，Windows 调用系统「打开方式」弹窗。
+    - **在访达 (Finder) / 文件资源管理器中显示**、**在终端打开所在目录**、**复制完整路径 / `@相对路径` 引用**、**安全移至废纸篓 / 回收站**。
+- 🖼️ **多图预览左右切换 (Multi-Image Gallery Switching)**
+  - **聊天上传多图切换**：在输入框或聊天消息中上传/展示 2 张及以上图片时，点开任意一张大图预览（全屏弹窗或原生图片页），自动浮现左右 **`‹` / `›`** 切换按钮与底部 **`当前 / 总数`** 计数条，支持点击或键盘 **`←` / `→`** 循环切换，无需退出重开。
+  - **文件树抽屉图片切换**：在侧边栏预览图片时，若同目录有多张图片，标题栏自动出现 **`‹ 1/N ›`** 按钮，同样支持 **`←` / `→`** 快捷键切换。
+- 📁 **工作区自动感知 & 实时过滤**：自动跟随当前项目工作区、支持动态切换目录 (`📂`)、实时文件名/路径搜索过滤、一键切换隐藏文件（`.git`、`.vscode` 等）。
+- 👁️ **多格式分屏预览抽屉**：支持代码高亮、Markdown（含 Mermaid 图表）、HTML、PDF、音视频、图片（带区域批注与缩放），以及可选 `officecli` 预览 Office 文档。
+- 🚀 **多选拖拽进聊天框 (`@` 引用)**：支持 `Ctrl/Cmd + Click`、`Shift + Click` 多选文件，直接拖入对话输入框或点 `💬` 生成 `@rel/path/to/file` 上下文引用。
 
 ---
 
-## 📂 Project Structure
+## 📦 环境要求 (Requirements)
 
+- **Antigravity**：`2.22.0` 及以上版本（Windows / macOS / Linux）
+- **零额外依赖**：无需安装第三方 npm 包，直接使用 Antigravity 内置 Node.js 运行时与 `sidecar_sdk`。
+- **可选工具**：`officecli`（仅用于侧边栏直接预览 `.docx` / `.xlsx` / `.pptx`，不装不影响其他所有功能）。
+
+---
+
+## 🛠️ 安装与使用 (Installation)
+
+### 方式一：Windows 用户（推荐）
+
+#### A. 不会用 Git 的朋友（直接下载 ZIP 一键安装）
+1. 点击本页右上角绿色 **`Code`** 按钮 → **`Download ZIP`**，把压缩包**完整解压**到一个普通文件夹。
+2. 打开解压后的 `scripts` 文件夹，双击 **`install-win.bat`**。
+   - 会自动将插件安装到 `%USERPROFILE%\.gemini\config\plugins\workspace-file-tree`；
+   - 并自动查找 `Antigravity.exe` 在桌面创建一个 **`Antigravity (增强版)`** 快捷方式（自动附带 `--remote-debugging-port=9222`）。
+3. **完全退出**当前 Antigravity，双击桌面生成的 **`Antigravity (增强版)`**（或 `scripts\launch-win.bat`）重新打开。
+4. 打开左侧 **Customizations / Plugins**，确认 **Workspace File Tree** 已开启，在右侧辅助栏切到 **Workspace Files** 即可使用！
+
+#### B. 命令行一键安装（PowerShell / Git）
+```powershell
+git clone https://github.com/arco651749/workspace-file-tree.git "$env:USERPROFILE\.gemini\config\plugins\workspace-file-tree"
+```
+然后右键你的 Antigravity 桌面快捷方式 → **属性** → 在「目标」末尾加上空格和 `--remote-debugging-port=9222`（用于启用拖拽进聊天框、原生标签页跳转和多图左右切换）：
 ```text
-workspace-file-tree/
-├── plugin.json              # Plugin manifest
-├── assets/
-│   └── logo.svg             # Extension icon
-├── sidecars/
-│   └── panel/               # Sidecar Web UI backend & frontend
-│       ├── sidecar.json     # Process & Aux Pane view registration
-│       ├── package.json     # Node ES module definition
-│       ├── main.mjs         # Node.js backend (File traversal, Image Base64 API)
-│       ├── index.html       # HTML UI markup
-│       ├── app.js           # Frontend client logic & drag-and-drop handler
-│       └── styles.css       # Theme-aware styles & split pane layout
-├── .gitignore
-└── README.md
+"...\Antigravity.exe" --remote-debugging-port=9222
 ```
+重启 Antigravity 并在 **Customizations / Plugins** 中开启 **Workspace File Tree** 即可。
+
+*(想卸载时，运行 `scripts\uninstall-win.bat` 或直接删除 `%USERPROFILE%\.gemini\config\plugins\workspace-file-tree` 目录即可。)*
 
 ---
 
-## 📦 Requirements & Dependencies
+### 方式二：macOS / Linux 用户
 
-- **Host Environment**: **ANTIGRAVITY 2.22.0 或以上版本** (Windows / macOS / Linux)。
-- **Zero NPM Dependencies (零額外依賴)**:
-  - ⚡ **無需執行 `npm install`！**
-  - 後端直接採用 Antigravity 內建的 Node.js 執行階段與原生 `sidecar_sdk`。
-  - 前端程式庫（如語法高亮 `highlight.min.js`、PDF 檢視器 `pdf.min.js` 等）皆已完整打包在倉庫中，開箱即用。
-- **Optional Tools (選用擴充工具)**:
-  - `officecli`: *(可選)* 若需要側欄直接預覽 Microsoft Office 文件（`.docx`, `.xlsx`, `.pptx`），可安裝 `officecli` 工具；未安裝時不影響其他任何檔案類型的預覽與原生分頁開啟功能。
-
----
-
-## 🛠️ Installation & Usage
-
-### 1. Installation
-Clone or copy this repository into your Antigravity plugins directory:
-
-- **Windows**: `%USERPROFILE%\.gemini\config\plugins\workspace-file-tree`
-- **macOS / Linux**: `~/.gemini/config/plugins/workspace-file-tree`
-
+#### 1. 克隆到插件目录
 ```bash
-git clone <repo-url> "%USERPROFILE%\.gemini\config\plugins\workspace-file-tree"
+git clone https://github.com/arco651749/workspace-file-tree.git ~/.gemini/config/plugins/workspace-file-tree
 ```
 
-### 2. Enable in Antigravity
-1. Open Antigravity IDE.
-2. Open the **Customizations** / **Plugins** manager.
-3. Verify `Workspace File Tree` is enabled.
-4. Toggle the auxiliary side pane to open the file tree!
+#### 2. 开启插件
+打开 Antigravity → 进入 **Customizations / Plugins** → 确认 **Workspace File Tree** 已启用，然后在右侧辅助栏打开 **Workspace Files** 面板即可。
 
-### 3. Enable Drag & Drop to Chat (Antigravity 2.25+)
-Starting from **Antigravity 2.25**, Chromium blocks native cross-scheme (`plugin://` → `https://127.0.0.1`) HTML5 drag-and-drop. This plugin uses a **Parent-Frame Drag Bridge** via CDP (Chrome DevTools Protocol) to restore drag-and-drop into the chat box.
+#### 3. 启用完整增强能力（拖拽进聊天框、原生标签页跳转、聊天多图左右切换）
+从 Antigravity 2.25 起，需带远程调试端口启动客户端（插件会自动读取 `DevToolsActivePort` 或 `AG_CDP_PORT`）：
 
-To enable it, launch Antigravity with `--remote-debugging-port=9222`:
-- **Windows Shortcut**: Right-click your Antigravity shortcut → **Properties** → append `--remote-debugging-port=9222` to the **Target** field:
-  ```text
-  "...\Antigravity.exe" --remote-debugging-port=9222
-  ```
-- **macOS**:
+- **macOS**：先按 `Cmd + Q` 完全退出 Antigravity，再在终端执行：
   ```bash
   open -a "/Applications/Antigravity.app" --args --remote-debugging-port=9222
   ```
-- **Linux / CLI**:
+- **Linux**：
   ```bash
   antigravity --remote-debugging-port=9222
   ```
-*(Restart Antigravity after adding the flag. The backend automatically reads `DevToolsActivePort` to connect.)*
 
 ---
 
-## 🗺️ Roadmap & Planned Features (TODO)
+## 🔄 如何更新 (Update)
 
-- [ ] 📑 **Enhanced Full-Tab Viewers for Binary Documents (PDF & Office)**:
-  - *Context*: Antigravity 官方內建的檔案分頁目前對二進位檔案缺乏專屬檢視器，直接進入 Monaco Editor 會呈現原始字元串流與亂碼（Mojibake）。
-  - **規劃解決方案 (Planned Solution)**：
-    - [ ] **全螢幕 PDF 分頁檢視器 (Full-Tab PDF Viewer)**：利用已內建的 `pdf.min.js`，在主分頁中提供高畫質多頁捲動、縮放與文字選取功能。
-    - [ ] **全螢幕 Office 分頁檢視器 (Full-Tab Office Viewer)**：利用 `officecli` 將 `.docx`、`.xlsx`、`.pptx` 轉換為格式化 HTML 在主分頁呈現完整版面。
-    - [ ] **CDP 動態分頁標籤名稱置換 (Dynamic Tab Titles)**：透過底層 Chrome DevTools 協定自動將分頁頂部標籤更新為真實檔案名稱（例如 `📕 document.pdf`、`📄 report.docx`）。
+如果是通过 `git clone` 安装的，直接在插件目录拉取最新代码，然后在插件管理页把 **Workspace File Tree** 关闭再重新打开一次即可：
+
+- **macOS / Linux**：
+  ```bash
+  git -C ~/.gemini/config/plugins/workspace-file-tree pull
+  ```
+- **Windows (PowerShell)**：
+  ```powershell
+  git -C "$env:USERPROFILE\.gemini\config\plugins\workspace-file-tree" pull
+  ```
 
 ---
 
-## 📄 License
-MIT License
+## 📂 目录结构 (Project Structure)
+
+```text
+workspace-file-tree/
+├── plugin.json              # Antigravity 插件清单
+├── README.md                # Windows & macOS 安装使用说明
+├── assets/
+│   └── logo.svg             # 插件图标
+├── scripts/
+│   ├── install-win.bat      # Windows 一键安装与创建快捷方式脚本
+│   ├── launch-win.bat       # Windows 带调试端口启动脚本
+│   └── uninstall-win.bat    # Windows 一键卸载脚本
+└── sidecars/
+    └── panel/               # Sidecar 后端与前端 UI
+        ├── sidecar.json     # Aux-Pane 面板注册配置
+        ├── package.json     # Node ESM 配置
+        ├── main.mjs         # 跨平台后端（文件树、剪贴板、回收站、外部 App、CDP 桥接）
+        ├── index.html       # 面板页面结构
+        ├── app.js           # 前端交互、右键菜单与预览抽屉多图切换
+        ├── previewers.js    # 多格式文件预览策略
+        └── styles.css       # 深浅色自适应样式
+```
+
+---
+
+## 📄 License & Credits
+
+- MIT License
+- Upstream repository: [arco651749/workspace-file-tree](https://github.com/arco651749/workspace-file-tree)
